@@ -4,10 +4,7 @@
  * Archivo: admin/views/query.php
  */
 
-// Para mostrar en el mismo artifact, agrego separador
-echo "\n\n" . str_repeat('=', 80) . "\n";
-echo "// ARCHIVO: admin/views/query.php\n";
-echo str_repeat('=', 80) . "\n\n";
+
 ?>
 
 <?php

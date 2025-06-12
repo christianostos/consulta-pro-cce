@@ -3,7 +3,7 @@
  * Plugin Name: Consulta Procesos
  * Plugin URI: https://tu-sitio.com/consulta-procesos
  * Description: Plugin para consultar procesos desde una base de datos SQL Server externa
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Tu Nombre
  * License: GPL v2 or later
  * Text Domain: consulta-procesos
@@ -17,14 +17,19 @@ if (!defined('ABSPATH')) {
 // Definir constantes del plugin
 define('CP_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('CP_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('CP_PLUGIN_VERSION', '1.0.0');
+define('CP_PLUGIN_VERSION', '1.1.0');
+define('CP_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
 /**
  * Clase principal del plugin Consulta Procesos
+ * Versión modular y organizada
  */
 class ConsultaProcesos {
     
     private static $instance = null;
+    private $db;
+    private $admin;
+    private $query_executor;
     
     /**
      * Obtener instancia única (Singleton)
@@ -40,662 +45,513 @@ class ConsultaProcesos {
      * Constructor
      */
     private function __construct() {
-        add_action('init', array($this, 'init'));
-        add_action('admin_menu', array($this, 'add_admin_menu'));
-        add_action('admin_init', array($this, 'admin_init'));
-        add_action('wp_ajax_cp_test_connection', array($this, 'ajax_test_connection'));
-        add_action('wp_ajax_cp_get_tables', array($this, 'ajax_get_tables'));
-        add_action('wp_ajax_cp_diagnose_system', array($this, 'ajax_diagnose_system'));
+        $this->init();
+        $this->load_dependencies();
+        $this->init_hooks();
+    }
+    
+    /**
+     * Inicialización básica
+     */
+    private function init() {
+        // Cargar archivos de idioma
+        add_action('init', array($this, 'load_textdomain'));
         
         // Hooks de activación y desactivación
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
+        register_uninstall_hook(__FILE__, array('ConsultaProcesos', 'uninstall'));
     }
     
     /**
-     * Inicialización del plugin
+     * Cargar dependencias del plugin
      */
-    public function init() {
-        // Cargar archivos de idioma
-        load_plugin_textdomain('consulta-procesos', false, dirname(plugin_basename(__FILE__)) . '/languages');
-    }
-    
-    /**
-     * Agregar menú de administración
-     */
-    public function add_admin_menu() {
-        add_menu_page(
-            __('Consulta Procesos', 'consulta-procesos'),
-            __('Consulta Procesos', 'consulta-procesos'),
-            'manage_options',
-            'consulta-procesos',
-            array($this, 'admin_page'),
-            'dashicons-database-view',
-            30
+    private function load_dependencies() {
+        // Verificar que los archivos existan antes de cargarlos
+        $required_files = array(
+            CP_PLUGIN_PATH . 'includes/class-cp-database.php',
+            CP_PLUGIN_PATH . 'includes/class-cp-admin.php'
         );
         
-        add_submenu_page(
-            'consulta-procesos',
-            __('Configuración', 'consulta-procesos'),
-            __('Configuración', 'consulta-procesos'),
-            'manage_options',
-            'consulta-procesos-config',
-            array($this, 'config_page')
-        );
-    }
-    
-    /**
-     * Inicializar configuraciones de administración
-     */
-    public function admin_init() {
-        // Registrar configuraciones
-        register_setting('cp_settings_group', 'cp_db_server');
-        register_setting('cp_settings_group', 'cp_db_database');
-        register_setting('cp_settings_group', 'cp_db_username');
-        register_setting('cp_settings_group', 'cp_db_password');
-        register_setting('cp_settings_group', 'cp_db_port');
+        foreach ($required_files as $file) {
+            if (file_exists($file)) {
+                require_once $file;
+            } else {
+                // Si faltan archivos críticos, mostrar error
+                add_action('admin_notices', function() use ($file) {
+                    echo '<div class="notice notice-error"><p>';
+                    echo '<strong>Error en Consulta Procesos:</strong> Archivo requerido no encontrado: ' . basename($file);
+                    echo '</p></div>';
+                });
+                return;
+            }
+        }
         
-        // Secciones de configuración
-        add_settings_section(
-            'cp_db_section',
-            __('Configuración de Base de Datos', 'consulta-procesos'),
-            array($this, 'db_section_callback'),
-            'consulta-procesos-config'
+        // Cargar archivos opcionales
+        $optional_files = array(
+            CP_PLUGIN_PATH . 'includes/class-cp-utils.php',
+            CP_PLUGIN_PATH . 'includes/class-cp-security.php',
+            CP_PLUGIN_PATH . 'includes/class-cp-export.php',
+            CP_PLUGIN_PATH . 'includes/class-cp-query-executor.php'
         );
         
-        // Campos de configuración
-        add_settings_field(
-            'cp_db_server',
-            __('Servidor', 'consulta-procesos'),
-            array($this, 'server_field_callback'),
-            'consulta-procesos-config',
-            'cp_db_section'
-        );
+        foreach ($optional_files as $file) {
+            if (file_exists($file)) {
+                require_once $file;
+            }
+        }
         
-        add_settings_field(
-            'cp_db_database',
-            __('Base de Datos', 'consulta-procesos'),
-            array($this, 'database_field_callback'),
-            'consulta-procesos-config',
-            'cp_db_section'
-        );
+        // Inicializar clases principales
+        if (class_exists('CP_Database')) {
+            $this->db = CP_Database::get_instance();
+        }
         
-        add_settings_field(
-            'cp_db_username',
-            __('Usuario', 'consulta-procesos'),
-            array($this, 'username_field_callback'),
-            'consulta-procesos-config',
-            'cp_db_section'
-        );
+        if (class_exists('CP_Admin')) {
+            $this->admin = CP_Admin::get_instance();
+        }
         
-        add_settings_field(
-            'cp_db_password',
-            __('Contraseña', 'consulta-procesos'),
-            array($this, 'password_field_callback'),
-            'consulta-procesos-config',
-            'cp_db_section'
-        );
-        
-        add_settings_field(
-            'cp_db_port',
-            __('Puerto', 'consulta-procesos'),
-            array($this, 'port_field_callback'),
-            'consulta-procesos-config',
-            'cp_db_section'
-        );
-        
-        // Agregar estilos y scripts de admin
-        add_action('admin_enqueue_scripts', array($this, 'admin_scripts'));
-    }
-    
-    /**
-     * Cargar scripts y estilos de administración
-     */
-    public function admin_scripts($hook) {
-        if (strpos($hook, 'consulta-procesos') !== false) {
-            wp_enqueue_script('cp-admin-js', CP_PLUGIN_URL . 'assets/js/admin.js', array('jquery'), CP_PLUGIN_VERSION, true);
-            wp_enqueue_style('cp-admin-css', CP_PLUGIN_URL . 'assets/css/admin.css', array(), CP_PLUGIN_VERSION);
-            
-            // Localizar script para AJAX
-            wp_localize_script('cp-admin-js', 'cp_ajax', array(
-                'url' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('cp_nonce'),
-                'messages' => array(
-                    'testing' => __('Probando conexión...', 'consulta-procesos'),
-                    'success' => __('Conexión exitosa', 'consulta-procesos'),
-                    'error' => __('Error de conexión', 'consulta-procesos'),
-                    'loading_tables' => __('Cargando tablas...', 'consulta-procesos')
-                )
-            ));
+        // Inicializar ejecutor de consultas
+        if (class_exists('CP_Query_Executor')) {
+            $this->query_executor = CP_Query_Executor::get_instance();
         }
     }
     
     /**
-     * Página principal de administración
+     * Inicializar hooks de WordPress
      */
-    public function admin_page() {
-        ?>
-        <div class="wrap">
-            <h1><?php _e('Consulta Procesos', 'consulta-procesos'); ?></h1>
-            
-            <div class="cp-dashboard">
-                <div class="cp-card">
-                    <h2><?php _e('Diagnóstico del Sistema', 'consulta-procesos'); ?></h2>
-                    <div id="system-diagnosis">
-                        <button id="diagnose-system" class="button">
-                            <?php _e('Ejecutar Diagnóstico', 'consulta-procesos'); ?>
-                        </button>
-                        <div id="diagnosis-result"></div>
-                    </div>
-                </div>
-                
-                <div class="cp-card">
-                    <h2><?php _e('Estado de Conexión', 'consulta-procesos'); ?></h2>
-                    <div id="connection-status">
-                        <button id="test-connection" class="button button-primary">
-                            <?php _e('Probar Conexión', 'consulta-procesos'); ?>
-                        </button>
-                        <div id="connection-result"></div>
-                    </div>
-                </div>
-                
-                <div class="cp-card">
-                    <h2><?php _e('Tablas Disponibles', 'consulta-procesos'); ?></h2>
-                    <div id="tables-container">
-                        <button id="load-tables" class="button">
-                            <?php _e('Cargar Tablas', 'consulta-procesos'); ?>
-                        </button>
-                        <div id="tables-list"></div>
-                    </div>
-                </div>
-                
-                <div class="cp-card">
-                    <h2><?php _e('Información del Plugin', 'consulta-procesos'); ?></h2>
-                    <div class="plugin-info">
-                        <p><strong>Versión:</strong> <?php echo CP_PLUGIN_VERSION; ?></p>
-                        <p><strong>PHP:</strong> <?php echo PHP_VERSION; ?></p>
-                        <p><strong>Sistema:</strong> <?php echo PHP_OS; ?></p>
-                        <p><strong>WordPress:</strong> <?php echo get_bloginfo('version'); ?></p>
-                        
-                        <h4>Extensiones Disponibles:</h4>
-                        <ul class="extensions-list">
-                            <li>PDO SQLSRV: <?php echo extension_loaded('pdo_sqlsrv') ? '✅ Disponible' : '❌ No disponible'; ?></li>
-                            <li>SQLSRV: <?php echo extension_loaded('sqlsrv') ? '✅ Disponible' : '❌ No disponible'; ?></li>
-                            <li>OpenSSL: <?php echo extension_loaded('openssl') ? '✅ Disponible' : '❌ No disponible'; ?></li>
-                        </ul>
-                        
-                        <?php if (!extension_loaded('pdo_sqlsrv') && !extension_loaded('sqlsrv')): ?>
-                        <div class="notice notice-error inline">
-                            <p><strong>⚠️ Atención:</strong> No tienes las extensiones de SQL Server instaladas. 
-                            <a href="#" id="show-install-instructions">Ver instrucciones de instalación</a></p>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="install-instructions" style="display: none;" class="cp-card">
-                <h2>Instrucciones de Instalación de Extensiones</h2>
-                <div class="install-tabs">
-                    <button class="tab-button active" data-tab="ubuntu">Ubuntu/Debian</button>
-                    <button class="tab-button" data-tab="centos">CentOS/RHEL</button>
-                    <button class="tab-button" data-tab="windows">Windows</button>
-                </div>
-                
-                <div id="ubuntu-tab" class="tab-content active">
-                    <h4>Para Ubuntu/Debian:</h4>
-                    <pre><code># Instalar drivers de Microsoft
-curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
-curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list > /etc/apt/sources.list.d/mssql-release.list
-apt-get update
-ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev
-
-# Instalar extensiones PHP
-apt-get install -y php-dev php-pear
-pecl install sqlsrv pdo_sqlsrv
-
-# Agregar a php.ini
-echo "extension=pdo_sqlsrv.so" >> /etc/php/8.0/apache2/php.ini
-echo "extension=sqlsrv.so" >> /etc/php/8.0/apache2/php.ini
-
-# Reiniciar Apache
-systemctl restart apache2</code></pre>
-                </div>
-                
-                <div id="centos-tab" class="tab-content">
-                    <h4>Para CentOS/RHEL:</h4>
-                    <pre><code># Instalar repositorio de Microsoft
-curl https://packages.microsoft.com/config/rhel/8/prod.repo > /etc/yum.repos.d/mssql-release.repo
-yum remove unixODBC-utf16 unixODBC-utf16-devel
-ACCEPT_EULA=Y yum install -y msodbcsql17 unixODBC-devel
-
-# Instalar extensiones
-yum install -y php-devel php-pear
-pecl install sqlsrv pdo_sqlsrv
-
-# Reiniciar servidor web
-systemctl restart httpd</code></pre>
-                </div>
-                
-                <div id="windows-tab" class="tab-content">
-                    <h4>Para Windows:</h4>
-                    <ol>
-                        <li>Descarga los drivers desde <a href="https://docs.microsoft.com/en-us/sql/connect/php/download-drivers-php-sql-server" target="_blank">Microsoft</a></li>
-                        <li>Copia los archivos .dll a la carpeta ext/ de PHP</li>
-                        <li>Agrega estas líneas a php.ini:</li>
-                    </ol>
-                    <pre><code>extension=php_sqlsrv.dll
-extension=php_pdo_sqlsrv.dll</code></pre>
-                    <p>Reinicia el servidor web después de los cambios.</p>
-                </div>
-            </div>
-        </div>
-        <?php
-    }
-    
-    /**
-     * Página de configuración
-     */
-    public function config_page() {
-        ?>
-        <div class="wrap">
-            <h1><?php _e('Configuración - Consulta Procesos', 'consulta-procesos'); ?></h1>
-            
-            <form method="post" action="options.php">
-                <?php
-                settings_fields('cp_settings_group');
-                do_settings_sections('consulta-procesos-config');
-                submit_button();
-                ?>
-            </form>
-        </div>
-        <?php
-    }
-    
-    /**
-     * Callbacks para campos de configuración
-     */
-    public function db_section_callback() {
-        echo '<p>' . __('Configura los parámetros de conexión a tu servidor SQL Server.', 'consulta-procesos') . '</p>';
-    }
-    
-    public function server_field_callback() {
-        $value = get_option('cp_db_server', '');
-        echo '<input type="text" name="cp_db_server" value="' . esc_attr($value) . '" class="regular-text" placeholder="192.168.1.100" />';
-        echo '<p class="description">' . __('Dirección IP o nombre del servidor SQL Server', 'consulta-procesos') . '</p>';
-    }
-    
-    public function database_field_callback() {
-        $value = get_option('cp_db_database', '');
-        echo '<input type="text" name="cp_db_database" value="' . esc_attr($value) . '" class="regular-text" />';
-        echo '<p class="description">' . __('Nombre de la base de datos', 'consulta-procesos') . '</p>';
-    }
-    
-    public function username_field_callback() {
-        $value = get_option('cp_db_username', '');
-        echo '<input type="text" name="cp_db_username" value="' . esc_attr($value) . '" class="regular-text" />';
-        echo '<p class="description">' . __('Usuario de la base de datos', 'consulta-procesos') . '</p>';
-    }
-    
-    public function password_field_callback() {
-        $value = get_option('cp_db_password', '');
-        echo '<input type="password" name="cp_db_password" value="' . esc_attr($value) . '" class="regular-text" />';
-        echo '<p class="description">' . __('Contraseña del usuario', 'consulta-procesos') . '</p>';
-    }
-    
-    public function port_field_callback() {
-        $value = get_option('cp_db_port', '1433');
-        echo '<input type="number" name="cp_db_port" value="' . esc_attr($value) . '" class="small-text" />';
-        echo '<p class="description">' . __('Puerto del servidor (por defecto: 1433)', 'consulta-procesos') . '</p>';
-    }
-    
-    /**
-     * Método para conectar a SQL Server
-     */
-    private function get_db_connection() {
-        $server = get_option('cp_db_server');
-        $database = get_option('cp_db_database');
-        $username = get_option('cp_db_username');
-        $password = get_option('cp_db_password');
-        $port = get_option('cp_db_port', '1433');
+    private function init_hooks() {
+        // Hook para cuando WordPress esté completamente cargado
+        add_action('wp_loaded', array($this, 'wp_loaded'));
         
-        if (empty($server) || empty($database) || empty($username)) {
-            return array('success' => false, 'error' => 'Faltan parámetros de conexión requeridos');
+        // Hook para scripts y estilos del frontend (futuro)
+        add_action('wp_enqueue_scripts', array($this, 'frontend_scripts'));
+        
+        // Hook para verificar actualizaciones
+        add_action('plugins_loaded', array($this, 'check_version'));
+        
+        // Hook para agregar enlaces en la página de plugins
+        add_filter('plugin_action_links_' . CP_PLUGIN_BASENAME, array($this, 'add_action_links'));
+        
+        // Hook para notificaciones de admin si faltan dependencias
+        add_action('admin_notices', array($this, 'check_dependencies_notice'));
+    }
+    
+    /**
+     * Cargar textdomain para traducciones
+     */
+    public function load_textdomain() {
+        load_plugin_textdomain(
+            'consulta-procesos', 
+            false, 
+            dirname(CP_PLUGIN_BASENAME) . '/languages'
+        );
+    }
+    
+    /**
+     * Cuando WordPress esté completamente cargado
+     */
+    public function wp_loaded() {
+        // Verificar compatibilidad
+        if (!$this->check_compatibility()) {
+            add_action('admin_notices', array($this, 'compatibility_notice'));
+            return;
         }
         
-        // Log para debugging
-        error_log("CP: Intentando conectar a {$server},{$port} - DB: {$database} - User: {$username}");
-        
-        try {
-            // Verificar extensiones disponibles
-            $extensions_info = $this->get_available_extensions();
-            error_log("CP: Extensiones disponibles: " . json_encode($extensions_info));
+        // Plugin completamente cargado
+        do_action('cp_plugin_loaded');
+    }
+    
+    /**
+     * Scripts y estilos del frontend (para futuras funcionalidades)
+     */
+    public function frontend_scripts() {
+        // Solo cargar si es necesario en el frontend
+        if ($this->should_load_frontend_assets()) {
+            wp_enqueue_style(
+                'cp-frontend-css', 
+                CP_PLUGIN_URL . 'assets/css/frontend.css', 
+                array(), 
+                CP_PLUGIN_VERSION
+            );
             
-            // Intentar conexión con PDO SQLSRV
-            if (extension_loaded('pdo_sqlsrv')) {
-                error_log("CP: Intentando conexión con PDO SQLSRV");
-                
-                // DSN con configuración específica para Docker/Windows
-                $dsn = "sqlsrv:server={$server},{$port};Database={$database};TrustServerCertificate=1;ConnectionPooling=0";
-                
-                // Opciones PDO compatibles con SQL Server
-                $options = array(
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    // Removido PDO::ATTR_TIMEOUT ya que no es compatible con SQLSRV
-                    // Configuración de encoding específica para SQLSRV
-                    PDO::SQLSRV_ATTR_ENCODING => PDO::SQLSRV_ENCODING_UTF8,
-                    // Configuración de timeout específica para SQLSRV
-                    PDO::SQLSRV_ATTR_QUERY_TIMEOUT => 30
-                );
-                
-                $conn = new PDO($dsn, $username, $password, $options);
-                error_log("CP: Conexión PDO exitosa");
-                
-                // Probar la conexión con una consulta simple
-                $stmt = $conn->query("SELECT 1 as test");
-                $result = $stmt->fetch();
-                if ($result['test'] != 1) {
-                    throw new Exception("Prueba de conexión falló");
-                }
-                
-                return array('success' => true, 'connection' => $conn, 'method' => 'PDO SQLSRV');
-            }
-            // Intentar conexión con SQLSRV nativo
-            elseif (extension_loaded('sqlsrv')) {
-                error_log("CP: Intentando conexión con SQLSRV nativo");
-                
-                $connectionInfo = array(
-                    "Database" => $database,
-                    "UID" => $username,
-                    "PWD" => $password,
-                    "TrustServerCertificate" => 1,
-                    "ConnectionPooling" => 0,
-                    "LoginTimeout" => 30,
-                    "CharacterSet" => "UTF-8"
-                );
-                
-                $conn = sqlsrv_connect("{$server},{$port}", $connectionInfo);
-                
-                if ($conn === false) {
-                    $errors = sqlsrv_errors();
-                    $error_msg = "Error SQLSRV: ";
-                    foreach ($errors as $error) {
-                        $error_msg .= "[{$error['SQLSTATE']}] {$error['message']} ";
-                    }
-                    error_log("CP: " . $error_msg);
-                    return array('success' => false, 'error' => $error_msg);
-                }
-                
-                // Probar la conexión
-                $stmt = sqlsrv_query($conn, "SELECT 1 as test");
-                if ($stmt === false) {
-                    $errors = sqlsrv_errors();
-                    $error_msg = "Error en prueba de conexión: ";
-                    foreach ($errors as $error) {
-                        $error_msg .= $error['message'] . " ";
-                    }
-                    sqlsrv_close($conn);
-                    return array('success' => false, 'error' => $error_msg);
-                }
-                
-                sqlsrv_free_stmt($stmt);
-                error_log("CP: Conexión SQLSRV exitosa");
-                return array('success' => true, 'connection' => $conn, 'method' => 'SQLSRV nativo');
-            }
-            else {
-                $error = 'No hay extensiones de SQL Server disponibles. Extensiones PHP encontradas: ' . implode(', ', get_loaded_extensions());
-                error_log("CP: " . $error);
-                return array('success' => false, 'error' => $error);
-            }
-        } catch (PDOException $e) {
-            $error_msg = 'Error PDO: ' . $e->getMessage() . ' | Código: ' . $e->getCode();
-            
-            // Proporcionar sugerencias específicas basadas en el error
-            if (strpos($e->getMessage(), 'unsupported attribute') !== false) {
-                $error_msg .= ' | SUGERENCIA: Problema de compatibilidad PDO corregido. Reintentando...';
-                error_log('CP: ' . $error_msg);
-                
-                // Reintentar con configuración mínima
-                try {
-                    $dsn_simple = "sqlsrv:server={$server},{$port};Database={$database};TrustServerCertificate=1";
-                    $options_simple = array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION);
-                    $conn = new PDO($dsn_simple, $username, $password, $options_simple);
-                    error_log("CP: Conexión PDO con configuración mínima exitosa");
-                    return array('success' => true, 'connection' => $conn, 'method' => 'PDO SQLSRV (modo simple)');
-                } catch (Exception $e2) {
-                    $error_msg = 'Error en reintento: ' . $e2->getMessage();
-                }
-            } elseif (strpos($e->getMessage(), 'could not find driver') !== false) {
-                $error_msg .= ' | SUGERENCIA: Driver PDO SQLSRV no encontrado o mal configurado';
-            } elseif (strpos($e->getMessage(), 'Login timeout') !== false || strpos($e->getMessage(), 'timeout') !== false) {
-                $error_msg .= ' | SUGERENCIA: Problema de conectividad. Verifica firewall y que SQL Server esté ejecutándose';
-            } elseif (strpos($e->getMessage(), 'Login failed') !== false) {
-                $error_msg .= ' | SUGERENCIA: Credenciales incorrectas o usuario sin permisos';
-            }
-            
-            error_log('CP: ' . $error_msg);
-            return array('success' => false, 'error' => $error_msg);
-        } catch (Exception $e) {
-            $error_msg = 'Error general de conexión: ' . $e->getMessage() . ' | Código: ' . $e->getCode();
-            error_log('CP: ' . $error_msg);
-            return array('success' => false, 'error' => $error_msg);
+            wp_enqueue_script(
+                'cp-frontend-js', 
+                CP_PLUGIN_URL . 'assets/js/frontend.js', 
+                array('jquery'), 
+                CP_PLUGIN_VERSION, 
+                true
+            );
         }
     }
     
     /**
-     * Obtener información de extensiones disponibles
+     * Verificar si se deben cargar assets del frontend
      */
-    private function get_available_extensions() {
-        $extensions = array();
-        $sql_extensions = array('pdo_sqlsrv', 'sqlsrv', 'pdo', 'odbc', 'pdo_odbc');
-        
-        foreach ($sql_extensions as $ext) {
-            $extensions[$ext] = extension_loaded($ext);
-        }
-        
-        return $extensions;
+    private function should_load_frontend_assets() {
+        // Por ahora retornar false, implementar lógica cuando sea necesario
+        return false;
     }
     
     /**
-     * Diagnosticar sistema para SQL Server
+     * Verificar compatibilidad del sistema
      */
-    public function diagnose_system() {
-        $diagnosis = array();
-        
-        // Verificar extensiones
-        $diagnosis['extensions'] = $this->get_available_extensions();
-        
+    private function check_compatibility() {
         // Verificar versión de PHP
-        $diagnosis['php_version'] = PHP_VERSION;
+        if (version_compare(PHP_VERSION, '7.4', '<')) {
+            return false;
+        }
         
-        // Verificar sistema operativo
-        $diagnosis['os'] = PHP_OS;
+        // Verificar versión de WordPress
+        if (version_compare(get_bloginfo('version'), '5.0', '<')) {
+            return false;
+        }
         
-        // Verificar si OpenSSL está disponible
-        $diagnosis['openssl'] = extension_loaded('openssl');
-        
-        // Verificar configuración de PHP relevante
-        $diagnosis['allow_url_fopen'] = ini_get('allow_url_fopen');
-        $diagnosis['max_execution_time'] = ini_get('max_execution_time');
-        
-        return $diagnosis;
+        return true;
     }
     
     /**
-     * AJAX: Probar conexión
+     * Mostrar aviso de compatibilidad
      */
-    public function ajax_test_connection() {
-        check_ajax_referer('cp_nonce', 'nonce');
+    public function compatibility_notice() {
+        $class = 'notice notice-error';
+        $message = sprintf(
+            __('Consulta Procesos requiere PHP 7.4+ y WordPress 5.0+. Versión actual: PHP %s, WordPress %s', 'consulta-procesos'),
+            PHP_VERSION,
+            get_bloginfo('version')
+        );
         
-        if (!current_user_can('manage_options')) {
-            wp_die('No autorizado');
-        }
-        
-        $result = $this->get_db_connection();
-        
-        if ($result['success']) {
-            wp_send_json_success(array(
-                'message' => __('Conexión exitosa a la base de datos', 'consulta-procesos') . ' (' . $result['method'] . ')',
-                'method' => $result['method']
-            ));
-        } else {
-            // Obtener diagnóstico del sistema
-            $diagnosis = $this->diagnose_system();
-            
-            wp_send_json_error(array(
-                'message' => $result['error'],
-                'diagnosis' => $diagnosis,
-                'suggestions' => $this->get_connection_suggestions($diagnosis)
-            ));
-        }
+        printf('<div class="%1$s"><p>%2$s</p></div>', esc_attr($class), esc_html($message));
     }
     
     /**
-     * AJAX: Obtener tablas disponibles
+     * Verificar dependencias y mostrar avisos
      */
-    public function ajax_get_tables() {
-        check_ajax_referer('cp_nonce', 'nonce');
-        
-        if (!current_user_can('manage_options')) {
-            wp_die('No autorizado');
+    public function check_dependencies_notice() {
+        // Solo mostrar en páginas del plugin
+        $screen = get_current_screen();
+        if (!$screen || strpos($screen->id, 'consulta-procesos') === false) {
+            return;
         }
         
-        $result = $this->get_db_connection();
-        
-        if (!$result['success']) {
-            wp_send_json_error(array(
-                'message' => __('No hay conexión a la base de datos: ', 'consulta-procesos') . $result['error']
-            ));
+        // Verificar extensiones SQL Server
+        if (!extension_loaded('pdo_sqlsrv') && !extension_loaded('sqlsrv')) {
+            echo '<div class="notice notice-warning">';
+            echo '<p><strong>⚠️ Consulta Procesos:</strong> No se detectaron extensiones de SQL Server. ';
+            echo 'El plugin necesita <code>pdo_sqlsrv</code> o <code>sqlsrv</code> para funcionar correctamente.</p>';
+            echo '</div>';
         }
         
-        $connection = $result['connection'];
-        
-        try {
-            $tables = array();
-            
-            if ($connection instanceof PDO) {
-                // Consulta para PDO
-                $query = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME";
-                $stmt = $connection->prepare($query);
-                $stmt->execute();
-                $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                
-                foreach ($results as $row) {
-                    $tables[] = $row['TABLE_NAME'];
-                }
-            } else {
-                // Consulta para SQLSRV
-                $query = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME";
-                $stmt = sqlsrv_query($connection, $query);
-                
-                if ($stmt === false) {
-                    $errors = sqlsrv_errors();
-                    $error_msg = '';
-                    foreach ($errors as $error) {
-                        $error_msg .= $error['message'] . ' ';
-                    }
-                    throw new Exception('Error en la consulta: ' . $error_msg);
-                }
-                
-                while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
-                    $tables[] = $row['TABLE_NAME'];
-                }
-                sqlsrv_free_stmt($stmt);
-            }
-            
-            wp_send_json_success(array(
-                'tables' => $tables,
-                'count' => count($tables),
-                'method' => $result['method']
-            ));
-            
-        } catch (Exception $e) {
-            wp_send_json_error(array(
-                'message' => __('Error al obtener las tablas: ', 'consulta-procesos') . $e->getMessage()
-            ));
+        // Verificar si faltan archivos críticos
+        if (!class_exists('CP_Database') || !class_exists('CP_Admin')) {
+            echo '<div class="notice notice-error">';
+            echo '<p><strong>❌ Error:</strong> Faltan archivos críticos del plugin. ';
+            echo 'Por favor, reinstala el plugin o verifica que todos los archivos estén presentes.</p>';
+            echo '</div>';
         }
     }
     
     /**
-     * AJAX: Diagnosticar sistema
+     * Verificar versión y migraciones
      */
-    public function ajax_diagnose_system() {
-        check_ajax_referer('cp_nonce', 'nonce');
+    public function check_version() {
+        $installed_version = get_option('cp_plugin_version', '0.0.0');
         
-        if (!current_user_can('manage_options')) {
-            wp_die('No autorizado');
+        if (version_compare($installed_version, CP_PLUGIN_VERSION, '<')) {
+            $this->upgrade($installed_version, CP_PLUGIN_VERSION);
+            update_option('cp_plugin_version', CP_PLUGIN_VERSION);
         }
-        
-        $diagnosis = $this->diagnose_system();
-        
-        wp_send_json_success(array(
-            'diagnosis' => $diagnosis,
-            'suggestions' => $this->get_connection_suggestions($diagnosis)
-        ));
     }
     
     /**
-     * Obtener sugerencias basadas en el diagnóstico
+     * Proceso de actualización
      */
-    private function get_connection_suggestions($diagnosis) {
-        $suggestions = array();
+    private function upgrade($from_version, $to_version) {
+        // Log de actualización
+        error_log("CP: Actualizando de {$from_version} a {$to_version}");
         
-        if (!$diagnosis['extensions']['pdo_sqlsrv'] && !$diagnosis['extensions']['sqlsrv']) {
-            $suggestions[] = '❌ No tienes las extensiones de SQL Server instaladas. Necesitas instalar pdo_sqlsrv o sqlsrv.';
-            
-            if (strpos($diagnosis['os'], 'Linux') !== false) {
-                $suggestions[] = '💡 En Linux, ejecuta: sudo pecl install sqlsrv pdo_sqlsrv';
-            } elseif (strpos($diagnosis['os'], 'WIN') !== false) {
-                $suggestions[] = '💡 En Windows, descarga los drivers desde Microsoft y agrega las extensiones a php.ini';
-            }
-        } elseif ($diagnosis['extensions']['pdo_sqlsrv'] || $diagnosis['extensions']['sqlsrv']) {
-            $suggestions[] = '✅ Las extensiones están disponibles. El problema puede ser de conectividad:';
-            
-            // Detectar si estamos en Docker
-            if (file_exists('/.dockerenv') || file_exists('/proc/1/cgroup')) {
-                $suggestions[] = '🐳 <strong>DOCKER DETECTADO:</strong> Estás ejecutando WordPress en Docker.';
-                $suggestions[] = '🔧 En lugar de localhost o 127.0.0.1, usa: <code>host.docker.internal</code>';
-                $suggestions[] = '🔧 Si tu SQL Server está en Windows, usa la IP interna: <code>172.17.0.1</code>';
-                $suggestions[] = '🔧 O la IP de tu máquina Windows en la red local (ej: 192.168.x.x)';
-                $suggestions[] = '🛡️ Verifica que Windows Firewall permita conexiones en puerto 1433';
-                $suggestions[] = '📖 Ejecuta <code>ipconfig</code> en Windows para obtener tu IP local';
-            } else {
-                $suggestions[] = '🔍 Verifica que SQL Server permita conexiones remotas';
-                $suggestions[] = '🔍 Confirma que el puerto 1433 esté abierto';
-                $suggestions[] = '🔍 Verifica las credenciales de usuario';
-                $suggestions[] = '🔍 Confirma que la base de datos existe';
-            }
+        // Migraciones específicas por versión
+        if (version_compare($from_version, '1.1.0', '<')) {
+            $this->upgrade_to_1_1_0();
         }
         
-        if (!$diagnosis['openssl']) {
-            $suggestions[] = '⚠️ OpenSSL no está disponible. Esto puede causar problemas con conexiones seguras.';
-        }
+        // Ejecutar hook de actualización
+        do_action('cp_plugin_upgraded', $from_version, $to_version);
+    }
+    
+    /**
+     * Actualización específica a versión 1.1.0
+     */
+    private function upgrade_to_1_1_0() {
+        // Migrar configuraciones si es necesario
+        // Por ejemplo, cambiar nombres de opciones o estructuras
         
-        if (version_compare($diagnosis['php_version'], '7.4', '<')) {
-            $suggestions[] = '⚠️ Tu versión de PHP (' . $diagnosis['php_version'] . ') es muy antigua. Considera actualizar.';
-        }
+        // Log de migración específica
+        error_log("CP: Migración a 1.1.0 completada");
+    }
+    
+    /**
+     * Agregar enlaces de acción en la página de plugins
+     */
+    public function add_action_links($links) {
+        $action_links = array(
+            'config' => sprintf(
+                '<a href="%s">%s</a>',
+                admin_url('admin.php?page=consulta-procesos-config'),
+                __('Configuración', 'consulta-procesos')
+            ),
+            'dashboard' => sprintf(
+                '<a href="%s">%s</a>',
+                admin_url('admin.php?page=consulta-procesos'),
+                __('Panel', 'consulta-procesos')
+            ),
+        );
         
-        return $suggestions;
+        return array_merge($action_links, $links);
     }
     
     /**
      * Activación del plugin
      */
     public function activate() {
-        // Crear opciones por defecto
-        add_option('cp_db_port', '1433');
+        // Verificar requisitos del sistema
+        if (!$this->check_compatibility()) {
+            wp_die(
+                __('Este plugin requiere PHP 7.4+ y WordPress 5.0+', 'consulta-procesos'),
+                __('Error de Activación', 'consulta-procesos'),
+                array('back_link' => true)
+            );
+        }
         
-        // Crear tabla de log si es necesario
-        // $this->create_log_table();
+        // Crear opciones por defecto
+        $default_options = array(
+            'cp_db_port' => '1433',
+            'cp_plugin_version' => CP_PLUGIN_VERSION,
+            'cp_activation_date' => current_time('mysql'),
+            'cp_settings_version' => '1.0'
+        );
+        
+        foreach ($default_options as $option => $value) {
+            add_option($option, $value);
+        }
+        
+        // Crear tabla de logs si es necesario
+        $this->create_tables();
+        
+        // Flush rewrite rules si es necesario
+        flush_rewrite_rules();
+        
+        // Log de activación
+        error_log('CP: Plugin activado - Versión ' . CP_PLUGIN_VERSION);
+        
+        // Hook de activación para extensiones
+        do_action('cp_plugin_activated');
+    }
+    
+    /**
+     * Crear tablas necesarias
+     */
+    private function create_tables() {
+        global $wpdb;
+        
+        // Tabla para logs de consultas (futuro)
+        $table_name = $wpdb->prefix . 'cp_query_logs';
+        
+        $charset_collate = $wpdb->get_charset_collate();
+        
+        $sql = "CREATE TABLE $table_name (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) NOT NULL,
+            query_text longtext NOT NULL,
+            execution_time float DEFAULT 0,
+            rows_returned int DEFAULT 0,
+            status varchar(20) DEFAULT 'success',
+            error_message text DEFAULT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            KEY user_id (user_id),
+            KEY created_at (created_at)
+        ) $charset_collate;";
+        
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+        
+        // Tabla para consultas guardadas (futuro)
+        $saved_queries_table = $wpdb->prefix . 'cp_saved_queries';
+        
+        $sql2 = "CREATE TABLE $saved_queries_table (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) NOT NULL,
+            name varchar(255) NOT NULL,
+            description text DEFAULT NULL,
+            query_text longtext NOT NULL,
+            is_public tinyint(1) DEFAULT 0,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            KEY user_id (user_id),
+            KEY name (name)
+        ) $charset_collate;";
+        
+        dbDelta($sql2);
     }
     
     /**
      * Desactivación del plugin
      */
     public function deactivate() {
-        // Limpiar tareas programadas si las hay
+        // Limpiar tareas programadas
+        wp_clear_scheduled_hook('cp_cleanup_logs');
+        
+        // Flush rewrite rules
+        flush_rewrite_rules();
+        
+        // Log de desactivación
+        error_log('CP: Plugin desactivado');
+        
+        // Hook de desactivación
+        do_action('cp_plugin_deactivated');
+    }
+    
+    /**
+     * Desinstalación del plugin
+     */
+    public static function uninstall() {
+        // Solo ejecutar si realmente se está desinstalando
+        if (!defined('WP_UNINSTALL_PLUGIN')) {
+            return;
+        }
+        
+        // Eliminar opciones
+        $options_to_delete = array(
+            'cp_db_server',
+            'cp_db_database', 
+            'cp_db_username',
+            'cp_db_password',
+            'cp_db_port',
+            'cp_plugin_version',
+            'cp_activation_date',
+            'cp_settings_version'
+        );
+        
+        foreach ($options_to_delete as $option) {
+            delete_option($option);
+        }
+        
+        // Eliminar tablas (opcional - comentado por seguridad)
+        /*
+        global $wpdb;
+        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}cp_query_logs");
+        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}cp_saved_queries");
+        */
+        
+        // Log de desinstalación
+        error_log('CP: Plugin desinstalado completamente');
+        
+        // Hook de desinstalación
+        do_action('cp_plugin_uninstalled');
+    }
+    
+    /**
+     * Obtener instancia de la base de datos
+     */
+    public function get_database() {
+        return $this->db;
+    }
+    
+    /**
+     * Obtener instancia del admin
+     */
+    public function get_admin() {
+        return $this->admin;
+    }
+    
+    /**
+     * Obtener instancia del ejecutor de consultas
+     */
+    public function get_query_executor() {
+        return $this->query_executor;
+    }
+    
+    /**
+     * Información del plugin
+     */
+    public function get_plugin_info() {
+        return array(
+            'version' => CP_PLUGIN_VERSION,
+            'path' => CP_PLUGIN_PATH,
+            'url' => CP_PLUGIN_URL,
+            'basename' => CP_PLUGIN_BASENAME
+        );
     }
 }
 
-// Inicializar el plugin
-ConsultaProcesos::get_instance();
+/**
+ * Función de acceso global al plugin
+ */
+function consulta_procesos() {
+    return ConsultaProcesos::get_instance();
+}
+
+/**
+ * Inicializar el plugin
+ */
+add_action('plugins_loaded', function() {
+    consulta_procesos();
+});
+
+/**
+ * Funciones de utilidad globales
+ */
+
+/**
+ * Obtener instancia de la base de datos
+ */
+function cp_get_database() {
+    return consulta_procesos()->get_database();
+}
+
+/**
+ * Obtener instancia del admin
+ */
+function cp_get_admin() {
+    return consulta_procesos()->get_admin();
+}
+
+/**
+ * Obtener instancia del ejecutor de consultas
+ */
+function cp_get_query_executor() {
+    return consulta_procesos()->get_query_executor();
+}
+
+/**
+ * Verificar si el usuario puede usar el plugin
+ */
+function cp_current_user_can() {
+    return current_user_can('manage_options');
+}
+
+/**
+ * Log personalizado para el plugin
+ */
+function cp_log($message, $level = 'info') {
+    if (WP_DEBUG && WP_DEBUG_LOG) {
+        error_log("CP[{$level}]: {$message}");
+    }
+}
+
+/**
+ * Obtener configuración de conexión
+ */
+function cp_get_connection_config() {
+    return array(
+        'server' => get_option('cp_db_server'),
+        'database' => get_option('cp_db_database'),
+        'username' => get_option('cp_db_username'),
+        'password' => get_option('cp_db_password'),
+        'port' => get_option('cp_db_port', '1433')
+    );
+}
+
+// Hook para desarrolladores - se ejecuta cuando el plugin está completamente cargado
+do_action('cp_plugin_init');
