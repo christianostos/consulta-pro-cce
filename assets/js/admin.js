@@ -12,6 +12,7 @@ jQuery(document).ready(function($) {
         initDashboard();
         initConfigPage();
         initQueryPage();
+        initSettingsPage(); // Nueva función para la página de parámetros
         initModals();
         bindGlobalEvents();
     }
@@ -225,17 +226,20 @@ jQuery(document).ready(function($) {
     });
     
     // ========================================
-    // PÁGINA DE CONFIGURACIÓN
+    // PÁGINA DE CONFIGURACIÓN DE CONEXIÓN
     // ========================================
     
     function initConfigPage() {
-        // Validación en tiempo real mejorada
-        $('form#cp-config-form').on('submit', function(e) {
-            if (!validateConfigForm()) {
-                e.preventDefault();
-                return false;
-            }
-        });
+        // Solo aplicar validación en la página de configuración de conexión
+        var $configForm = $('form#cp-config-form');
+        if ($configForm.length > 0) {
+            $configForm.on('submit', function(e) {
+                if (!validateConfigForm()) {
+                    e.preventDefault();
+                    return false;
+                }
+            });
+        }
         
         // Limpiar configuración
         $('#reset-config').on('click', function(e) {
@@ -269,6 +273,62 @@ jQuery(document).ready(function($) {
         }
         
         return true;
+    }
+    
+    // ========================================
+    // PÁGINA DE CONFIGURACIÓN DE PARÁMETROS
+    // ========================================
+    
+    function initSettingsPage() {
+        // Validación específica para la página de parámetros
+        var $settingsForm = $('#cp-settings-form');
+        if ($settingsForm.length > 0) {
+            $settingsForm.on('submit', function(e) {
+                // Aquí puedes agregar validaciones específicas para parámetros si las necesitas
+                // Por ahora, solo permitir el envío normal
+                return true;
+            });
+        }
+        
+        // Alternar habilitación de método según activación
+        $('input[name^="cp_"][name$="_active"]').on('change', function() {
+            var baseName = $(this).attr('name').replace('_active', '');
+            var methodRadios = $('input[name="' + baseName + '_method"]');
+            
+            if ($(this).is(':checked')) {
+                methodRadios.prop('disabled', false);
+                methodRadios.closest('fieldset').removeClass('disabled');
+            } else {
+                methodRadios.prop('disabled', true);
+                methodRadios.closest('fieldset').addClass('disabled');
+            }
+        });
+        
+        // Inicializar estado de métodos
+        $('input[name^="cp_"][name$="_active"]').trigger('change');
+        
+        // Preview en tiempo real de términos
+        if (typeof tinymce !== 'undefined') {
+            // Si TinyMCE está disponible, escuchar cambios
+            $(document).on('tinymce-editor-init', function(event, editor) {
+                if (editor.id === 'cp_terms_content') {
+                    editor.on('change keyup', function() {
+                        updateTermsPreview();
+                    });
+                }
+            });
+        }
+        
+        // Fallback para textarea normal
+        $('#cp_terms_content').on('input', function() {
+            updateTermsPreview();
+        });
+    }
+    
+    function updateTermsPreview() {
+        // Esta función podría mostrar una vista previa de los términos
+        // Por ahora, solo un placeholder
+        console.log('Términos actualizados');
     }
     
     // ========================================
@@ -664,42 +724,21 @@ jQuery(document).ready(function($) {
             location.reload();
         });
         
-        // Validación mejorada en campos de configuración
-        $('input[name="cp_db_server"]').on('blur', function() {
-            validateServerField($(this));
-        });
-        
-        $('input[name="cp_db_port"]').on('input', function() {
-            validatePortField($(this));
-        });
+        // Validación mejorada en campos de configuración - SOLO EN PÁGINA DE CONFIGURACIÓN
+        if ($('input[name="cp_db_server"]').length > 0) {
+            $('input[name="cp_db_server"]').on('blur', function() {
+                validateServerField($(this));
+            });
+            
+            $('input[name="cp_db_port"]').on('input', function() {
+                validatePortField($(this));
+            });
+        }
         
         // Prevenir envío accidental de formularios con Enter
         $('input[type="text"], input[type="password"]').on('keypress', function(e) {
             if (e.which === 13 && !$(this).closest('form').find('input[type="submit"]').is(':focus')) {
                 e.preventDefault();
-            }
-        });
-        
-        // Validación en tiempo real de campos de configuración (original)
-        $('form').on('submit', function(e) {
-            var server = $('input[name="cp_db_server"]').val();
-            var database = $('input[name="cp_db_database"]').val();
-            var username = $('input[name="cp_db_username"]').val();
-            
-            if (!server || !database || !username) {
-                alert('Por favor, completa todos los campos obligatorios (Servidor, Base de Datos y Usuario).');
-                e.preventDefault();
-                return false;
-            }
-            
-            // Validar formato de IP
-            var ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
-            var hostnameRegex = /^[a-zA-Z0-9.-]+$/;
-            
-            if (!ipRegex.test(server) && !hostnameRegex.test(server)) {
-                alert('El formato del servidor no parece válido. Usa una IP (ej: 192.168.1.100) o nombre de host como host.docker.internal');
-                e.preventDefault();
-                return false;
             }
         });
     }
@@ -790,7 +829,7 @@ jQuery(document).ready(function($) {
     }
     
     // Mensaje de bienvenida en consola
-    console.log('Consulta Procesos v' + (cp_ajax.version || '1.1.0') + ' cargado correctamente');
+    console.log('Consulta Procesos v' + (cp_ajax.version || '1.2.0') + ' cargado correctamente');
     
     // Debug: mostrar variables globales en consola
     if (typeof cp_ajax.debug !== 'undefined' && cp_ajax.debug) {

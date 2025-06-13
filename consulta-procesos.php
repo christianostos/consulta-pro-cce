@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Consulta Procesos
  * Plugin URI: https://tu-sitio.com/consulta-procesos
- * Description: Plugin para consultar procesos desde una base de datos SQL Server externa
- * Version: 1.1.0
+ * Description: Plugin para consultar procesos desde una base de datos SQL Server externa con formulario frontend
+ * Version: 1.2.0
  * Author: Tu Nombre
  * License: GPL v2 or later
  * Text Domain: consulta-procesos
@@ -17,18 +17,19 @@ if (!defined('ABSPATH')) {
 // Definir constantes del plugin
 define('CP_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('CP_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('CP_PLUGIN_VERSION', '1.1.0');
+define('CP_PLUGIN_VERSION', '1.2.0');
 define('CP_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
 /**
  * Clase principal del plugin Consulta Procesos
- * Versión modular y organizada
+ * Versión modular y organizada con soporte para frontend
  */
 class ConsultaProcesos {
     
     private static $instance = null;
     private $db;
     private $admin;
+    private $frontend;
     private $query_executor;
     
     /**
@@ -92,7 +93,8 @@ class ConsultaProcesos {
             CP_PLUGIN_PATH . 'includes/class-cp-utils.php',
             CP_PLUGIN_PATH . 'includes/class-cp-security.php',
             CP_PLUGIN_PATH . 'includes/class-cp-export.php',
-            CP_PLUGIN_PATH . 'includes/class-cp-query-executor.php'
+            CP_PLUGIN_PATH . 'includes/class-cp-query-executor.php',
+            CP_PLUGIN_PATH . 'includes/class-cp-frontend.php' // Nuevo archivo del frontend
         );
         
         foreach ($optional_files as $file) {
@@ -110,6 +112,11 @@ class ConsultaProcesos {
             $this->admin = CP_Admin::get_instance();
         }
         
+        // Inicializar frontend
+        if (class_exists('CP_Frontend')) {
+            $this->frontend = CP_Frontend::get_instance();
+        }
+        
         // Inicializar ejecutor de consultas
         if (class_exists('CP_Query_Executor')) {
             $this->query_executor = CP_Query_Executor::get_instance();
@@ -123,7 +130,7 @@ class ConsultaProcesos {
         // Hook para cuando WordPress esté completamente cargado
         add_action('wp_loaded', array($this, 'wp_loaded'));
         
-        // Hook para scripts y estilos del frontend (futuro)
+        // Hook para scripts y estilos del frontend
         add_action('wp_enqueue_scripts', array($this, 'frontend_scripts'));
         
         // Hook para verificar actualizaciones
@@ -134,6 +141,9 @@ class ConsultaProcesos {
         
         // Hook para notificaciones de admin si faltan dependencias
         add_action('admin_notices', array($this, 'check_dependencies_notice'));
+        
+        // Hook para agregar meta box en editor de posts/páginas
+        add_action('add_meta_boxes', array($this, 'add_shortcode_meta_box'));
     }
     
     /**
@@ -162,34 +172,11 @@ class ConsultaProcesos {
     }
     
     /**
-     * Scripts y estilos del frontend (para futuras funcionalidades)
+     * Scripts y estilos del frontend
      */
     public function frontend_scripts() {
-        // Solo cargar si es necesario en el frontend
-        if ($this->should_load_frontend_assets()) {
-            wp_enqueue_style(
-                'cp-frontend-css', 
-                CP_PLUGIN_URL . 'assets/css/frontend.css', 
-                array(), 
-                CP_PLUGIN_VERSION
-            );
-            
-            wp_enqueue_script(
-                'cp-frontend-js', 
-                CP_PLUGIN_URL . 'assets/js/frontend.js', 
-                array('jquery'), 
-                CP_PLUGIN_VERSION, 
-                true
-            );
-        }
-    }
-    
-    /**
-     * Verificar si se deben cargar assets del frontend
-     */
-    private function should_load_frontend_assets() {
-        // Por ahora retornar false, implementar lógica cuando sea necesario
-        return false;
+        // Los scripts del frontend se cargan desde la clase CP_Frontend
+        // Solo agregar scripts globales aquí si es necesario
     }
     
     /**
@@ -248,6 +235,47 @@ class ConsultaProcesos {
             echo 'Por favor, reinstala el plugin o verifica que todos los archivos estén presentes.</p>';
             echo '</div>';
         }
+        
+        // Mostrar información sobre el shortcode
+        if (class_exists('CP_Frontend')) {
+            $this->show_shortcode_info_notice();
+        }
+    }
+    
+    /**
+     * Mostrar información sobre el shortcode
+     */
+    private function show_shortcode_info_notice() {
+        $screen = get_current_screen();
+        
+        // Solo mostrar en la página principal del plugin
+        if ($screen && $screen->id === 'toplevel_page_consulta-procesos') {
+            $shortcode_count = $this->count_shortcode_usage();
+            
+            if ($shortcode_count === 0) {
+                echo '<div class="notice notice-info">';
+                echo '<p><strong>💡 Tip:</strong> Para mostrar el formulario de consulta en tu sitio, ';
+                echo 'usa el shortcode <code>[consulta_procesos]</code> en cualquier página o entrada. ';
+                echo '<a href="' . admin_url('admin.php?page=consulta-procesos-settings') . '">Configurar parámetros</a></p>';
+                echo '</div>';
+            }
+        }
+    }
+    
+    /**
+     * Contar uso del shortcode
+     */
+    private function count_shortcode_usage() {
+        global $wpdb;
+        
+        $count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->posts} 
+             WHERE post_status = 'publish' 
+             AND post_content LIKE %s",
+            '%[consulta_procesos%'
+        ));
+        
+        return intval($count);
     }
     
     /**
@@ -274,6 +302,10 @@ class ConsultaProcesos {
             $this->upgrade_to_1_1_0();
         }
         
+        if (version_compare($from_version, '1.2.0', '<')) {
+            $this->upgrade_to_1_2_0();
+        }
+        
         // Ejecutar hook de actualización
         do_action('cp_plugin_upgraded', $from_version, $to_version);
     }
@@ -283,10 +315,81 @@ class ConsultaProcesos {
      */
     private function upgrade_to_1_1_0() {
         // Migrar configuraciones si es necesario
-        // Por ejemplo, cambiar nombres de opciones o estructuras
-        
-        // Log de migración específica
         error_log("CP: Migración a 1.1.0 completada");
+    }
+    
+    /**
+     * Actualización específica a versión 1.2.0
+     */
+    private function upgrade_to_1_2_0() {
+        // Establecer valores por defecto para nuevas opciones del frontend
+        $default_options = array(
+            'cp_terms_content' => $this->get_default_terms_content(),
+            'cp_tvec_active' => 1,
+            'cp_tvec_method' => 'database',
+            'cp_secopi_active' => 1,
+            'cp_secopi_method' => 'database',
+            'cp_secopii_active' => 1,
+            'cp_secopii_method' => 'database'
+        );
+        
+        foreach ($default_options as $option => $value) {
+            if (get_option($option) === false) {
+                add_option($option, $value);
+            }
+        }
+        
+        error_log("CP: Migración a 1.2.0 completada - Frontend habilitado");
+    }
+    
+    /**
+     * Obtener contenido por defecto de términos de uso
+     */
+    private function get_default_terms_content() {
+        return '<p><strong>Términos y Condiciones de Uso</strong></p>
+        <p>Al utilizar este sistema de consulta de procesos, usted acepta los siguientes términos:</p>
+        <ul>
+            <li>La información proporcionada será utilizada únicamente para consultas oficiales</li>
+            <li>No está permitido el uso indebido de los datos obtenidos</li>
+            <li>El sistema está sujeto a disponibilidad y mantenimiento</li>
+            <li>Los resultados mostrados son de carácter informativo</li>
+        </ul>
+        <p>Para más información, consulte nuestra <a href="#" target="_blank">política de privacidad</a>.</p>';
+    }
+    
+    /**
+     * Agregar meta box para shortcode en editor
+     */
+    public function add_shortcode_meta_box() {
+        $screens = array('post', 'page');
+        
+        foreach ($screens as $screen) {
+            add_meta_box(
+                'cp-shortcode-info',
+                __('Consulta Procesos - Shortcode', 'consulta-procesos'),
+                array($this, 'shortcode_meta_box_callback'),
+                $screen,
+                'side',
+                'low'
+            );
+        }
+    }
+    
+    /**
+     * Callback para meta box del shortcode
+     */
+    public function shortcode_meta_box_callback($post) {
+        echo '<p>' . __('Para agregar el formulario de consulta, usa:', 'consulta-procesos') . '</p>';
+        echo '<code>[consulta_procesos]</code>';
+        echo '<p class="description">' . __('También puedes personalizar el título:', 'consulta-procesos') . '</p>';
+        echo '<code>[consulta_procesos title="Mi Título"]</code>';
+        
+        // Mostrar si ya tiene el shortcode
+        if (has_shortcode($post->post_content, 'consulta_procesos')) {
+            echo '<div style="margin-top: 10px; padding: 8px; background: #e7f3ff; border-left: 3px solid #0073aa;">';
+            echo '<strong>✅ Esta página ya contiene el shortcode</strong>';
+            echo '</div>';
+        }
     }
     
     /**
@@ -294,10 +397,10 @@ class ConsultaProcesos {
      */
     public function add_action_links($links) {
         $action_links = array(
-            'config' => sprintf(
+            'settings' => sprintf(
                 '<a href="%s">%s</a>',
-                admin_url('admin.php?page=consulta-procesos-config'),
-                __('Configuración', 'consulta-procesos')
+                admin_url('admin.php?page=consulta-procesos-settings'),
+                __('Configurar', 'consulta-procesos')
             ),
             'dashboard' => sprintf(
                 '<a href="%s">%s</a>',
@@ -327,7 +430,15 @@ class ConsultaProcesos {
             'cp_db_port' => '1433',
             'cp_plugin_version' => CP_PLUGIN_VERSION,
             'cp_activation_date' => current_time('mysql'),
-            'cp_settings_version' => '1.0'
+            'cp_settings_version' => '1.2',
+            // Nuevas opciones del frontend
+            'cp_terms_content' => $this->get_default_terms_content(),
+            'cp_tvec_active' => 1,
+            'cp_tvec_method' => 'database',
+            'cp_secopi_active' => 1,
+            'cp_secopi_method' => 'database',
+            'cp_secopii_active' => 1,
+            'cp_secopii_method' => 'database'
         );
         
         foreach ($default_options as $option => $value) {
@@ -353,7 +464,7 @@ class ConsultaProcesos {
     private function create_tables() {
         global $wpdb;
         
-        // Tabla para logs de consultas (futuro)
+        // Tabla para logs de consultas
         $table_name = $wpdb->prefix . 'cp_query_logs';
         
         $charset_collate = $wpdb->get_charset_collate();
@@ -375,7 +486,7 @@ class ConsultaProcesos {
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
         
-        // Tabla para consultas guardadas (futuro)
+        // Tabla para consultas guardadas
         $saved_queries_table = $wpdb->prefix . 'cp_saved_queries';
         
         $sql2 = "CREATE TABLE $saved_queries_table (
@@ -393,6 +504,28 @@ class ConsultaProcesos {
         ) $charset_collate;";
         
         dbDelta($sql2);
+        
+        // Nueva tabla para logs de búsquedas del frontend
+        $frontend_logs_table = $wpdb->prefix . 'cp_frontend_logs';
+        
+        $sql3 = "CREATE TABLE $frontend_logs_table (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            session_id varchar(64) NOT NULL,
+            profile_type varchar(20) NOT NULL,
+            fecha_inicio date NOT NULL,
+            fecha_fin date NOT NULL,
+            numero_documento varchar(50) NOT NULL,
+            search_sources text NOT NULL,
+            results_found int DEFAULT 0,
+            ip_address varchar(45) NOT NULL,
+            user_agent text,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            KEY session_id (session_id),
+            KEY created_at (created_at)
+        ) $charset_collate;";
+        
+        dbDelta($sql3);
     }
     
     /**
@@ -401,6 +534,7 @@ class ConsultaProcesos {
     public function deactivate() {
         // Limpiar tareas programadas
         wp_clear_scheduled_hook('cp_cleanup_logs');
+        wp_clear_scheduled_hook('cp_cleanup_temp_files');
         
         // Flush rewrite rules
         flush_rewrite_rules();
@@ -430,7 +564,14 @@ class ConsultaProcesos {
             'cp_db_port',
             'cp_plugin_version',
             'cp_activation_date',
-            'cp_settings_version'
+            'cp_settings_version',
+            'cp_terms_content',
+            'cp_tvec_active',
+            'cp_tvec_method',
+            'cp_secopi_active',
+            'cp_secopi_method',
+            'cp_secopii_active',
+            'cp_secopii_method'
         );
         
         foreach ($options_to_delete as $option) {
@@ -442,6 +583,7 @@ class ConsultaProcesos {
         global $wpdb;
         $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}cp_query_logs");
         $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}cp_saved_queries");
+        $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}cp_frontend_logs");
         */
         
         // Log de desinstalación
@@ -466,6 +608,13 @@ class ConsultaProcesos {
     }
     
     /**
+     * Obtener instancia del frontend
+     */
+    public function get_frontend() {
+        return $this->frontend;
+    }
+    
+    /**
      * Obtener instancia del ejecutor de consultas
      */
     public function get_query_executor() {
@@ -480,7 +629,9 @@ class ConsultaProcesos {
             'version' => CP_PLUGIN_VERSION,
             'path' => CP_PLUGIN_PATH,
             'url' => CP_PLUGIN_URL,
-            'basename' => CP_PLUGIN_BASENAME
+            'basename' => CP_PLUGIN_BASENAME,
+            'has_frontend' => class_exists('CP_Frontend'),
+            'shortcode_count' => $this->count_shortcode_usage()
         );
     }
 }
@@ -518,6 +669,13 @@ function cp_get_admin() {
 }
 
 /**
+ * Obtener instancia del frontend
+ */
+function cp_get_frontend() {
+    return consulta_procesos()->get_frontend();
+}
+
+/**
  * Obtener instancia del ejecutor de consultas
  */
 function cp_get_query_executor() {
@@ -551,6 +709,41 @@ function cp_get_connection_config() {
         'password' => get_option('cp_db_password'),
         'port' => get_option('cp_db_port', '1433')
     );
+}
+
+/**
+ * Obtener configuración del frontend
+ */
+function cp_get_frontend_config() {
+    return array(
+        'terms_content' => get_option('cp_terms_content'),
+        'tvec' => array(
+            'active' => get_option('cp_tvec_active', 1),
+            'method' => get_option('cp_tvec_method', 'database')
+        ),
+        'secopi' => array(
+            'active' => get_option('cp_secopi_active', 1),
+            'method' => get_option('cp_secopi_method', 'database')
+        ),
+        'secopii' => array(
+            'active' => get_option('cp_secopii_active', 1),
+            'method' => get_option('cp_secopii_method', 'database')
+        )
+    );
+}
+
+/**
+ * Verificar si una fuente de búsqueda está activa
+ */
+function cp_is_search_source_active($source) {
+    return get_option("cp_{$source}_active", 1) == 1;
+}
+
+/**
+ * Obtener método de búsqueda para una fuente
+ */
+function cp_get_search_method($source) {
+    return get_option("cp_{$source}_method", 'database');
 }
 
 // Hook para desarrolladores - se ejecuta cuando el plugin está completamente cargado

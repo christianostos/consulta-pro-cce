@@ -1,4 +1,4 @@
-/* Estilos base del plugin */
+/* Estilos base del plugin (actualizados) */
 .cp-dashboard {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
@@ -95,6 +95,141 @@
     content: "🔒";
     position: absolute;
     left: 0;
+}
+
+/* Nuevos estilos para configuración de parámetros */
+.cp-settings-container {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.cp-search-config-section {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 20px;
+    margin-bottom: 20px;
+    background: #fafafa;
+    transition: border-color 0.3s ease;
+}
+
+.cp-search-config-section:hover {
+    border-color: #0073aa;
+}
+
+.cp-search-config-section h3 {
+    margin-top: 0;
+    color: #0073aa;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cp-search-config-section h3:before {
+    content: "🔍";
+    font-size: 16px;
+}
+
+.cp-shortcode-examples {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 4px;
+    margin: 15px 0;
+    border: 1px solid #e9ecef;
+}
+
+.cp-shortcode-examples h4 {
+    margin-top: 15px;
+    margin-bottom: 5px;
+    color: #495057;
+    font-size: 14px;
+}
+
+.cp-shortcode-examples h4:first-child {
+    margin-top: 0;
+}
+
+.cp-shortcode-examples code {
+    background: #fff;
+    padding: 8px 12px;
+    border-radius: 3px;
+    display: block;
+    margin: 5px 0 15px 0;
+    border: 1px solid #ddd;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: #d63384;
+}
+
+.cp-status-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.cp-status-list li {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border-left: 3px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.cp-status-list li:hover {
+    background: #e9ecef;
+}
+
+.cp-status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.cp-status-indicator.active {
+    background-color: #28a745;
+    box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.25);
+}
+
+.cp-status-indicator.inactive {
+    background-color: #dc3545;
+    box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.25);
+}
+
+.cp-status-indicator.active + strong {
+    color: #155724;
+}
+
+.cp-status-indicator.inactive + strong {
+    color: #721c24;
+}
+
+.cp-help-sidebar {
+    grid-column: 2;
+}
+
+.cp-help-content h4 {
+    color: #0073aa;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.cp-help-content ul,
+.cp-help-content ol {
+    margin-bottom: 15px;
+    padding-left: 20px;
+}
+
+.cp-help-content li {
+    margin-bottom: 5px;
+    line-height: 1.4;
 }
 
 /* Editor de consultas */
@@ -310,27 +445,36 @@
     gap: 5px;
 }
 
-/* Estadísticas del dashboard */
+/* Estadísticas del dashboard - Mejoradas */
 #quick-stats {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 15px;
 }
 
 .stat-item {
     text-align: center;
-    padding: 15px;
-    background: #f8f9fa;
-    border-radius: 6px;
+    padding: 20px 15px;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 8px;
     border: 1px solid #e0e0e0;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.stat-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    border-color: #0073aa;
 }
 
 .stat-number {
     display: block;
-    font-size: 24px;
+    font-size: 28px;
     font-weight: bold;
     color: #0073aa;
-    margin-bottom: 5px;
+    margin-bottom: 8px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
 .stat-label {
@@ -338,6 +482,50 @@
     color: #646970;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+/* Frontend Stats (nueva sección) */
+.cp-frontend-stats {
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    border: 1px solid #2196f3;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+}
+
+.cp-frontend-stats h3 {
+    color: #1976d2;
+    margin-top: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cp-frontend-stats h3:before {
+    content: "🎯";
+    font-size: 18px;
+}
+
+.frontend-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.frontend-stat-item {
+    background: rgba(255,255,255,0.7);
+    padding: 15px;
+    border-radius: 6px;
+    text-align: center;
+}
+
+.frontend-stat-item strong {
+    display: block;
+    font-size: 24px;
+    color: #1976d2;
+    margin-bottom: 5px;
 }
 
 /* Modal para instrucciones */
@@ -439,15 +627,91 @@
     margin: 15px 0;
 }
 
+/* Nuevos estilos para metabox del shortcode */
+#cp-shortcode-info {
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+}
+
+#cp-shortcode-info code {
+    background: #fff;
+    padding: 6px 8px;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: #d63384;
+    border: 1px solid #ddd;
+}
+
+#cp-shortcode-info .description {
+    margin-top: 10px;
+    font-style: italic;
+    color: #666;
+}
+
+/* Validación visual de campos */
+.field-error {
+    color: #dc3545;
+    font-size: 12px;
+    margin-top: 5px;
+    display: block;
+}
+
+input.invalid,
+select.invalid,
+textarea.invalid {
+    border-color: #dc3545 !important;
+    box-shadow: 0 0 0 1px #dc3545;
+}
+
+input.valid,
+select.valid,
+textarea.valid {
+    border-color: #28a745 !important;
+    box-shadow: 0 0 0 1px #28a745;
+}
+
+/* Animaciones mejoradas */
+@keyframes fadeIn {
+    from { 
+        opacity: 0; 
+        transform: translateY(10px); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateY(0); 
+    }
+}
+
+.cp-card,
+.cp-modal-content {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.stat-item:hover .stat-number {
+    animation: pulse 0.6s ease;
+}
+
 /* Responsive design */
 @media (max-width: 1200px) {
     .cp-config-container,
-    .cp-query-container {
+    .cp-query-container,
+    .cp-settings-container {
         grid-template-columns: 1fr;
     }
     
     .cp-dashboard {
         grid-template-columns: 1fr;
+    }
+    
+    .cp-help-sidebar {
+        grid-column: 1;
     }
 }
 
@@ -485,6 +749,10 @@
         margin: 10% auto;
         width: 95%;
         padding: 20px;
+    }
+    
+    .frontend-stats-grid {
+        grid-template-columns: 1fr;
     }
 }
 
@@ -527,17 +795,6 @@
     border-radius: 0 4px 4px 0;
 }
 
-/* Animaciones */
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-.cp-card,
-.cp-modal-content {
-    animation: fadeIn 0.3s ease;
-}
-
 /* Accesibilidad */
 .button:focus,
 .tab-button:focus,
@@ -558,3 +815,23 @@
 .cp-icon-success { color: #00701a; }
 .cp-icon-error { color: #b32d2e; }
 .cp-icon-warning { color: #dba617; }
+
+/* Modo oscuro */
+@media (prefers-color-scheme: dark) {
+    .cp-card {
+        background: #1e1e1e;
+        border-color: #404040;
+        color: #e0e0e0;
+    }
+    
+    .cp-search-config-section {
+        background: #2a2a2a;
+        border-color: #404040;
+    }
+    
+    .stat-item {
+        background: linear-gradient(135deg, #2a2a2a 0%, #404040 100%);
+        border-color: #555;
+        color: #e0e0e0;
+    }
+}

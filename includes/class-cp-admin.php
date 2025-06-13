@@ -2,7 +2,7 @@
 /**
  * Clase para manejar todas las vistas y funcionalidades del panel de administración
  * 
- * Archivo: includes/class-cp-admin.php
+ * Archivo: includes/class-cp-admin.php (actualizado)
  */
 
 if (!defined('ABSPATH')) {
@@ -71,11 +71,21 @@ class CP_Admin {
         
         add_submenu_page(
             'consulta-procesos',
-            __('Configuración', 'consulta-procesos'),
-            __('Configuración', 'consulta-procesos'),
+            __('Configuración de Conexión', 'consulta-procesos'),
+            __('Conexión BD', 'consulta-procesos'),
             'manage_options',
             'consulta-procesos-config',
             array($this, 'render_config_page')
+        );
+        
+        // Nueva página de configuración de parámetros
+        add_submenu_page(
+            'consulta-procesos',
+            __('Configuración de Parámetros', 'consulta-procesos'),
+            __('Parámetros', 'consulta-procesos'),
+            'manage_options',
+            'consulta-procesos-settings',
+            array($this, 'render_settings_page')
         );
         
         // Página para consultas (futura funcionalidad)
@@ -93,14 +103,23 @@ class CP_Admin {
      * Inicializar configuraciones de administración
      */
     public function admin_init() {
-        // Registrar configuraciones
+        // Registrar configuraciones de conexión
         register_setting('cp_settings_group', 'cp_db_server');
         register_setting('cp_settings_group', 'cp_db_database');
         register_setting('cp_settings_group', 'cp_db_username');
         register_setting('cp_settings_group', 'cp_db_password');
         register_setting('cp_settings_group', 'cp_db_port');
         
-        // Secciones de configuración
+        // Registrar configuraciones de parámetros del frontend
+        register_setting('cp_frontend_settings_group', 'cp_terms_content');
+        register_setting('cp_frontend_settings_group', 'cp_tvec_active');
+        register_setting('cp_frontend_settings_group', 'cp_tvec_method');
+        register_setting('cp_frontend_settings_group', 'cp_secopi_active');
+        register_setting('cp_frontend_settings_group', 'cp_secopi_method');
+        register_setting('cp_frontend_settings_group', 'cp_secopii_active');
+        register_setting('cp_frontend_settings_group', 'cp_secopii_method');
+        
+        // Secciones de configuración de conexión
         add_settings_section(
             'cp_db_section',
             __('Configuración de Base de Datos', 'consulta-procesos'),
@@ -108,14 +127,14 @@ class CP_Admin {
             'consulta-procesos-config'
         );
         
-        // Campos de configuración
-        $this->add_settings_fields();
+        // Campos de configuración de conexión
+        $this->add_connection_settings_fields();
     }
     
     /**
-     * Agregar campos de configuración
+     * Agregar campos de configuración de conexión
      */
-    private function add_settings_fields() {
+    private function add_connection_settings_fields() {
         $fields = array(
             'cp_db_server' => array(
                 'title' => __('Servidor', 'consulta-procesos'),
@@ -186,10 +205,17 @@ class CP_Admin {
     }
     
     /**
-     * Renderizar página de configuración
+     * Renderizar página de configuración de conexión
      */
     public function render_config_page() {
         include_once CP_PLUGIN_PATH . 'admin/views/config.php';
+    }
+    
+    /**
+     * Renderizar página de configuración de parámetros
+     */
+    public function render_settings_page() {
+        include_once CP_PLUGIN_PATH . 'admin/views/settings.php';
     }
     
     /**
@@ -200,7 +226,7 @@ class CP_Admin {
     }
     
     /**
-     * Callbacks para campos de configuración
+     * Callbacks para campos de configuración de conexión
      */
     public function db_section_callback() {
         echo '<p>' . __('Configura los parámetros de conexión a tu servidor SQL Server.', 'consulta-procesos') . '</p>';
@@ -331,6 +357,57 @@ class CP_Admin {
     }
     
     /**
+     * Obtener estadísticas del frontend
+     */
+    public function get_frontend_stats() {
+        $stats = array(
+            'shortcode_usage' => $this->count_shortcode_usage(),
+            'active_searches' => $this->get_active_search_methods(),
+            'terms_configured' => !empty(get_option('cp_terms_content')),
+            'last_search' => get_option('cp_last_frontend_search', 'Nunca')
+        );
+        
+        return $stats;
+    }
+    
+    /**
+     * Contar uso del shortcode
+     */
+    private function count_shortcode_usage() {
+        global $wpdb;
+        
+        $count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->posts} 
+             WHERE post_status = 'publish' 
+             AND post_content LIKE %s",
+            '%[consulta_procesos%'
+        ));
+        
+        return intval($count);
+    }
+    
+    /**
+     * Obtener métodos de búsqueda activos
+     */
+    private function get_active_search_methods() {
+        $methods = array();
+        
+        if (get_option('cp_tvec_active', 1)) {
+            $methods['tvec'] = get_option('cp_tvec_method', 'database');
+        }
+        
+        if (get_option('cp_secopi_active', 1)) {
+            $methods['secopi'] = get_option('cp_secopi_method', 'database');
+        }
+        
+        if (get_option('cp_secopii_active', 1)) {
+            $methods['secopii'] = get_option('cp_secopii_method', 'database');
+        }
+        
+        return $methods;
+    }
+    
+    /**
      * Generar nonce para formularios
      */
     public function get_nonce_field($action = 'cp_nonce') {
@@ -350,5 +427,94 @@ class CP_Admin {
     public function show_admin_notice($message, $type = 'info') {
         $class = 'notice notice-' . $type;
         printf('<div class="%1$s"><p>%2$s</p></div>', esc_attr($class), esc_html($message));
+    }
+    
+    /**
+     * Obtener opciones de configuración por defecto
+     */
+    public function get_default_options() {
+        return array(
+            // Configuración de conexión
+            'cp_db_server' => '',
+            'cp_db_database' => '',
+            'cp_db_username' => '',
+            'cp_db_password' => '',
+            'cp_db_port' => '1433',
+            
+            // Configuración del frontend
+            'cp_terms_content' => $this->get_default_terms_content(),
+            'cp_tvec_active' => 1,
+            'cp_tvec_method' => 'database',
+            'cp_secopi_active' => 1,
+            'cp_secopi_method' => 'database',
+            'cp_secopii_active' => 1,
+            'cp_secopii_method' => 'database'
+        );
+    }
+    
+    /**
+     * Obtener contenido por defecto de términos de uso
+     */
+    private function get_default_terms_content() {
+        return '<p><strong>Términos y Condiciones de Uso</strong></p>
+        <p>Al utilizar este sistema de consulta de procesos, usted acepta los siguientes términos:</p>
+        <ul>
+            <li>La información proporcionada será utilizada únicamente para consultas oficiales</li>
+            <li>No está permitido el uso indebido de los datos obtenidos</li>
+            <li>El sistema está sujeto a disponibilidad y mantenimiento</li>
+            <li>Los resultados mostrados son de carácter informativo</li>
+        </ul>
+        <p>Para más información, consulte nuestra <a href="#" target="_blank">política de privacidad</a>.</p>';
+    }
+    
+    /**
+     * Resetear configuración a valores por defecto
+     */
+    public function reset_to_defaults() {
+        $defaults = $this->get_default_options();
+        
+        foreach ($defaults as $option => $value) {
+            update_option($option, $value);
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Exportar configuración
+     */
+    public function export_configuration() {
+        $config = array();
+        $options = array_keys($this->get_default_options());
+        
+        foreach ($options as $option) {
+            $config[$option] = get_option($option);
+        }
+        
+        $config['export_date'] = current_time('mysql');
+        $config['plugin_version'] = CP_PLUGIN_VERSION;
+        
+        return $config;
+    }
+    
+    /**
+     * Importar configuración
+     */
+    public function import_configuration($config) {
+        if (!is_array($config)) {
+            return false;
+        }
+        
+        $defaults = $this->get_default_options();
+        $imported = 0;
+        
+        foreach ($config as $option => $value) {
+            if (array_key_exists($option, $defaults)) {
+                update_option($option, $value);
+                $imported++;
+            }
+        }
+        
+        return $imported;
     }
 }
