@@ -272,6 +272,90 @@ $secopii_method = get_option('cp_secopii_method', 'database');
                     </tr>
                 </table>
             </div>
+
+            <div class="cp-card">
+                <h2><span class="dashicons dashicons-performance"></span> <?php _e('Configuración de Rendimiento', 'consulta-procesos'); ?></h2>
+                
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">
+                            <label for="cp_enable_cache"><?php _e('Habilitar Caché', 'consulta-procesos'); ?></label>
+                        </th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="cp_enable_cache" id="cp_enable_cache" value="1" 
+                                    <?php checked(get_option('cp_enable_cache', true)); ?>>
+                                <?php _e('Activar caché de resultados de consultas', 'consulta-procesos'); ?>
+                            </label>
+                            <p class="description">
+                                <?php _e('El caché mejora el rendimiento almacenando temporalmente los resultados de consultas frecuentes.', 'consulta-procesos'); ?>
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row">
+                            <label for="cp_cache_duration"><?php _e('Duración del Caché (segundos)', 'consulta-procesos'); ?></label>
+                        </th>
+                        <td>
+                            <input type="number" name="cp_cache_duration" id="cp_cache_duration" 
+                                value="<?php echo esc_attr(get_option('cp_cache_duration', 300)); ?>" 
+                                min="60" max="3600" class="small-text">
+                            <p class="description">
+                                <?php _e('Tiempo en segundos que se mantendrán los resultados en caché (60-3600 segundos).', 'consulta-procesos'); ?>
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row">
+                            <label for="cp_use_stored_procedures"><?php _e('Usar Stored Procedures', 'consulta-procesos'); ?></label>
+                        </th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="cp_use_stored_procedures" id="cp_use_stored_procedures" value="1" 
+                                    <?php checked(get_option('cp_use_stored_procedures', false)); ?>>
+                                <?php _e('Usar stored procedures cuando estén disponibles', 'consulta-procesos'); ?>
+                            </label>
+                            <p class="description">
+                                <?php _e('Los stored procedures pueden mejorar el rendimiento pero requieren permisos especiales en la base de datos.', 'consulta-procesos'); ?>
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row">
+                            <label for="cp_max_results_per_source"><?php _e('Máx. Resultados por Fuente', 'consulta-procesos'); ?></label>
+                        </th>
+                        <td>
+                            <input type="number" name="cp_max_results_per_source" id="cp_max_results_per_source" 
+                                value="<?php echo esc_attr(get_option('cp_max_results_per_source', 1000)); ?>" 
+                                min="100" max="5000" class="small-text">
+                            <p class="description">
+                                <?php _e('Número máximo de resultados que se obtendrán de cada fuente (TVEC, SECOPI, SECOPII).', 'consulta-procesos'); ?>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+                
+                <div class="cp-cache-actions">
+                    <h4><?php _e('Gestión de Caché', 'consulta-procesos'); ?></h4>
+                    
+                    <button type="button" id="cp-clear-cache" class="button button-secondary">
+                        <span class="dashicons dashicons-trash"></span>
+                        <?php _e('Limpiar Caché', 'consulta-procesos'); ?>
+                    </button>
+                    
+                    <button type="button" id="cp-cache-stats" class="button button-secondary">
+                        <span class="dashicons dashicons-chart-area"></span>
+                        <?php _e('Ver Estadísticas', 'consulta-procesos'); ?>
+                    </button>
+                    
+                    <div id="cp-cache-info" style="margin-top: 15px; display: none;">
+                        <!-- Las estadísticas se cargarán aquí vía AJAX -->
+                    </div>
+                </div>
+            </div>
             
             <?php submit_button(__('Guardar Configuración', 'consulta-procesos'), 'primary'); ?>
         </form>

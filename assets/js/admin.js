@@ -839,4 +839,76 @@ jQuery(document).ready(function($) {
             savedQueries: savedQueries
         });
     }
+
+    /**
+     * Gestión de caché
+     */
+    $('#cp-clear-cache').on('click', function(e) {
+        e.preventDefault();
+        
+        var button = $(this);
+        var originalText = button.html();
+        
+        if (!confirm('¿Estás seguro de que quieres limpiar todo el caché de consultas?')) {
+            return;
+        }
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Limpiando...');
+        
+        ajaxRequest('cp_clear_cache', {}, function(response) {
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success) {
+                alert('Caché limpiado exitosamente');
+                $('#cp-cache-stats').trigger('click'); // Actualizar estadísticas
+            } else {
+                alert('Error al limpiar caché: ' + (response.data.message || 'Error desconocido'));
+            }
+        }, function() {
+            button.prop('disabled', false).html(originalText);
+            alert('Error de comunicación con el servidor');
+        });
+    });
+
+    /**
+     * Ver estadísticas de caché
+     */
+    $('#cp-cache-stats').on('click', function(e) {
+        e.preventDefault();
+        
+        var button = $(this);
+        var infoDiv = $('#cp-cache-info');
+        var originalText = button.html();
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Cargando...');
+        
+        ajaxRequest('cp_get_cache_stats', {}, function(response) {
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success) {
+                var stats = response.data;
+                var html = '<div class="cp-stats-grid">';
+                html += '<div class="stat-item">';
+                html += '<strong>' + stats.cached_queries + '</strong>';
+                html += '<span>Consultas en Caché</span>';
+                html += '</div>';
+                html += '<div class="stat-item">';
+                html += '<strong>' + (stats.cache_enabled ? 'Activo' : 'Inactivo') + '</strong>';
+                html += '<span>Estado del Caché</span>';
+                html += '</div>';
+                html += '<div class="stat-item">';
+                html += '<strong>' + stats.cache_duration + 's</strong>';
+                html += '<span>Duración</span>';
+                html += '</div>';
+                html += '</div>';
+                
+                infoDiv.html(html).show();
+            } else {
+                infoDiv.html('<p class="error">Error al obtener estadísticas</p>').show();
+            }
+        }, function() {
+            button.prop('disabled', false).html(originalText);
+            infoDiv.html('<p class="error">Error de comunicación</p>').show();
+        });
+    });
 });

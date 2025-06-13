@@ -517,4 +517,48 @@ class CP_Admin {
         
         return $imported;
     }
+
+    /**
+     * AJAX: Limpiar caché
+     */
+    public function ajax_clear_cache() {
+        check_ajax_referer('cp_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('No autorizado');
+        }
+        
+        if (class_exists('CP_Frontend')) {
+            $frontend = CP_Frontend::get_instance();
+            $result = $frontend->clear_search_cache();
+            
+            if ($result) {
+                wp_send_json_success(array('message' => 'Caché limpiado exitosamente'));
+            } else {
+                wp_send_json_error(array('message' => 'Error al limpiar caché'));
+            }
+        } else {
+            wp_send_json_error(array('message' => 'Clase frontend no disponible'));
+        }
+    }
+
+    /**
+     * AJAX: Obtener estadísticas de caché
+     */
+    public function ajax_get_cache_stats() {
+        check_ajax_referer('cp_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('No autorizado');
+        }
+        
+        if (class_exists('CP_Frontend')) {
+            $frontend = CP_Frontend::get_instance();
+            $stats = $frontend->get_cache_stats();
+            
+            wp_send_json_success($stats);
+        } else {
+            wp_send_json_error(array('message' => 'Clase frontend no disponible'));
+        }
+    }
 }
