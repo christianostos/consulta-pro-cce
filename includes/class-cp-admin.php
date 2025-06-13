@@ -2,7 +2,7 @@
 /**
  * Clase para manejar todas las vistas y funcionalidades del panel de administración
  * 
- * Archivo: includes/class-cp-admin.php (actualizado)
+ * Archivo: includes/class-cp-admin.php (actualizado con logs)
  */
 
 if (!defined('ABSPATH')) {
@@ -44,6 +44,13 @@ class CP_Admin {
         add_action('wp_ajax_cp_test_connection', array($this, 'ajax_test_connection'));
         add_action('wp_ajax_cp_get_tables', array($this, 'ajax_get_tables'));
         add_action('wp_ajax_cp_diagnose_system', array($this, 'ajax_diagnose_system'));
+        
+        // Nuevos hooks AJAX para logs y testing
+        add_action('wp_ajax_cp_test_stored_procedure', array($this, 'ajax_test_stored_procedure'));
+        add_action('wp_ajax_cp_execute_admin_query', array($this, 'ajax_execute_admin_query'));
+        add_action('wp_ajax_cp_get_system_logs', array($this, 'ajax_get_system_logs'));
+        add_action('wp_ajax_cp_clear_system_logs', array($this, 'ajax_clear_system_logs'));
+        add_action('wp_ajax_cp_get_frontend_logs', array($this, 'ajax_get_frontend_logs'));
     }
     
     /**
@@ -96,6 +103,16 @@ class CP_Admin {
             'manage_options',
             'consulta-procesos-query',
             array($this, 'render_query_page')
+        );
+        
+        // Nueva página de logs y debugging
+        add_submenu_page(
+            'consulta-procesos',
+            __('Logs y Debugging', 'consulta-procesos'),
+            __('Logs', 'consulta-procesos'),
+            'manage_options',
+            'consulta-procesos-logs',
+            array($this, 'render_logs_page')
         );
     }
     
@@ -226,6 +243,13 @@ class CP_Admin {
     }
     
     /**
+     * Renderizar página de logs y debugging
+     */
+    public function render_logs_page() {
+        include_once CP_PLUGIN_PATH . 'admin/views/logs.php';
+    }
+    
+    /**
      * Callbacks para campos de configuración de conexión
      */
     public function db_section_callback() {
@@ -340,6 +364,319 @@ class CP_Admin {
         wp_send_json_success(array(
             'diagnosis' => $diagnosis,
             'suggestions' => $suggestions
+        ));
+    }
+    
+    /**
+     * AJAX: Probar stored procedure
+     */
+    public function ajax_test_stored_procedure() {
+        check_ajax_referer('cp_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('No autorizado');
+        }
+        
+        $sp_name = sanitize_text_field($_POST['sp_name'] ?? '');
+        $param1 = sanitize_text_field($_POST['param1'] ?? '');
+        $param2 = sanitize_text_field($_POST['param2'] ?? '');
+        $param3 = sanitize_text_field($_POST['param3'] ?? '');
+        
+        if (empty($sp_name) || empty($param1) || empty($param2) || empty($param3)) {
+            wp_send_json_error(array('message' => 'Faltan parámetros requeridos'));
+        }
+        
+        // Log del intento
+        error_log("CP Admin: Probando SP {$sp_name} con parámetros: {$param1}, {$param2}, {$param3}");
+        
+        $connection_result = $this->db->connect();
+        if (!$connection_result['success']) {
+            wp_send_json_error(array('message' => 'Error de conexión: ' . $connection_result['error']));
+        }
+        
+        $connection = $connection_result['connection'];
+        $method = $connection_result['method'];
+        
+        try {
+            $start_time = microtime(true);
+            
+            if (strpos($method, 'PDO') !== false) {
+                $sql = "EXEC {$sp_name} ?, ?, ?";
+                $stmt = $connection->prepare($sql);
+                $success = $stmt->execute(array($param1, $param2, $param3));
+                
+                if (!$success) {
+                    $errorInfo = $stmt->errorInfo();
+                    throw new Exception("Error PDO: " . $errorInfo[2]);
+                }
+                
+                $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } else {
+                $sql = "EXEC {$sp_name} ?, ?, ?";
+                $stmt = sqlsrv_prepare($connection, $sql, array($param1, $param2, $param3));
+                
+                if ($stmt === false) {
+                    $errors = sqlsrv_errors();
+                    $error_msg = 'Error preparando SP: ';
+                    foreach ($errors as $error) {
+                        $error_msg .= "[{$error['SQLSTATE']}] {$error['message']} ";
+                    }
+                    throw new Exception($error_msg);
+                }
+                
+                $success = sqlsrv_execute($stmt);
+                if ($success === false) {
+                    $errors = sqlsrv_errors();
+                    $error_msg = 'Error ejecutando SP: ';
+                    foreach ($errors as $error) {
+                        $error_msg .= "[{$error['SQLSTATE']}] {$error['message']} ";
+                    }
+                    throw new Exception($error_msg);
+                }
+                
+                $results = array();
+                while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                    foreach ($row as $key => $value) {
+                        if ($value instanceof DateTime) {
+                            $row[$key] = $value->format('Y-m-d H:i:s');
+                        }
+                    }
+                    $results[] = $row;
+                }
+                sqlsrv_free_stmt($stmt);
+            }
+            
+            $execution_time = microtime(true) - $start_time;
+            
+            error_log("CP Admin: SP {$sp_name} ejecutado exitosamente - " . count($results) . " resultados en " . round($execution_time, 4) . "s");
+            
+            wp_send_json_success(array(
+                'results' => $results,
+                'total_rows' => count($results),
+                'execution_time' => round($execution_time, 4),
+                'method' => $method,
+                'sql' => $sql
+            ));
+            
+        } catch (Exception $e) {
+            error_log("CP Admin: Error en SP {$sp_name} - " . $e->getMessage());
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+    
+    /**
+     * AJAX: Ejecutar consulta de admin (permite EXEC)
+     */
+    public function ajax_execute_admin_query() {
+        check_ajax_referer('cp_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('No autorizado');
+        }
+        
+        $sql = stripslashes($_POST['sql'] ?? '');
+        
+        if (empty($sql)) {
+            wp_send_json_error(array('message' => 'Consulta SQL requerida'));
+        }
+        
+        // Validación más permisiva para admin
+        if (!$this->validate_admin_query($sql)) {
+            wp_send_json_error(array('message' => 'Consulta no permitida'));
+        }
+        
+        error_log("CP Admin: Ejecutando consulta admin: " . substr($sql, 0, 100) . "...");
+        
+        $connection_result = $this->db->connect();
+        if (!$connection_result['success']) {
+            wp_send_json_error(array('message' => 'Error de conexión: ' . $connection_result['error']));
+        }
+        
+        $connection = $connection_result['connection'];
+        $method = $connection_result['method'];
+        
+        try {
+            $start_time = microtime(true);
+            
+            if (strpos($method, 'PDO') !== false) {
+                $stmt = $connection->prepare($sql);
+                $success = $stmt->execute();
+                
+                if (!$success) {
+                    $errorInfo = $stmt->errorInfo();
+                    throw new Exception("Error PDO: " . $errorInfo[2]);
+                }
+                
+                $results = array();
+                if ($stmt->columnCount() > 0) {
+                    $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                }
+            } else {
+                $stmt = sqlsrv_query($connection, $sql);
+                
+                if ($stmt === false) {
+                    $errors = sqlsrv_errors();
+                    $error_msg = 'Error en consulta: ';
+                    foreach ($errors as $error) {
+                        $error_msg .= "[{$error['SQLSTATE']}] {$error['message']} ";
+                    }
+                    throw new Exception($error_msg);
+                }
+                
+                $results = array();
+                while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                    foreach ($row as $key => $value) {
+                        if ($value instanceof DateTime) {
+                            $row[$key] = $value->format('Y-m-d H:i:s');
+                        }
+                    }
+                    $results[] = $row;
+                }
+                sqlsrv_free_stmt($stmt);
+            }
+            
+            $execution_time = microtime(true) - $start_time;
+            
+            error_log("CP Admin: Consulta admin ejecutada - " . count($results) . " resultados en " . round($execution_time, 4) . "s");
+            
+            wp_send_json_success(array(
+                'results' => $results,
+                'total_rows' => count($results),
+                'execution_time' => round($execution_time, 4),
+                'method' => $method
+            ));
+            
+        } catch (Exception $e) {
+            error_log("CP Admin: Error en consulta admin - " . $e->getMessage());
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+    
+    /**
+     * Validar consulta de admin (más permisiva)
+     */
+    private function validate_admin_query($sql) {
+        $sql = trim(strtoupper($sql));
+        
+        // Permitir SELECT, EXEC, SP_HELP, etc.
+        $allowed_starts = array('SELECT', 'EXEC', 'SP_HELP', 'SP_HELPDB', 'SP_COLUMNS');
+        
+        foreach ($allowed_starts as $start) {
+            if (strpos($sql, $start) === 0) {
+                return true;
+            }
+        }
+        
+        // Bloquear comandos peligrosos
+        $dangerous = array('DROP', 'DELETE', 'UPDATE', 'INSERT', 'TRUNCATE', 'ALTER', 'CREATE');
+        foreach ($dangerous as $cmd) {
+            if (strpos($sql, $cmd) === 0) {
+                return false;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * AJAX: Obtener logs del sistema
+     */
+    public function ajax_get_system_logs() {
+        check_ajax_referer('cp_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('No autorizado');
+        }
+        
+        $log_file = WP_CONTENT_DIR . '/debug.log';
+        
+        if (!file_exists($log_file)) {
+            wp_send_json_success(array(
+                'logs' => 'Archivo de logs no encontrado en: ' . $log_file,
+                'file_exists' => false
+            ));
+        }
+        
+        // Leer las últimas 100 líneas del log
+        $lines = array();
+        $file = new SplFileObject($log_file);
+        $file->seek(PHP_INT_MAX);
+        $total_lines = $file->key();
+        
+        $start = max(0, $total_lines - 200); // Últimas 200 líneas
+        $file->seek($start);
+        
+        while (!$file->eof()) {
+            $line = $file->fgets();
+            if (strpos($line, 'CP Frontend') !== false || 
+                strpos($line, 'CP Admin') !== false || 
+                strpos($line, 'CP Database') !== false) {
+                $lines[] = $line;
+            }
+        }
+        
+        wp_send_json_success(array(
+            'logs' => implode('', array_slice($lines, -50)), // Últimas 50 líneas relevantes
+            'file_exists' => true,
+            'file_size' => filesize($log_file)
+        ));
+    }
+    
+    /**
+     * AJAX: Limpiar logs del sistema
+     */
+    public function ajax_clear_system_logs() {
+        check_ajax_referer('cp_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('No autorizado');
+        }
+        
+        $log_file = WP_CONTENT_DIR . '/debug.log';
+        
+        if (file_exists($log_file)) {
+            file_put_contents($log_file, '');
+            wp_send_json_success(array('message' => 'Logs limpiados exitosamente'));
+        } else {
+            wp_send_json_error(array('message' => 'Archivo de logs no encontrado'));
+        }
+    }
+    
+    /**
+     * AJAX: Obtener logs del frontend
+     */
+    public function ajax_get_frontend_logs() {
+        check_ajax_referer('cp_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('No autorizado');
+        }
+        
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'cp_frontend_logs';
+        
+        // Verificar que la tabla existe
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+            wp_send_json_success(array(
+                'logs' => array(),
+                'total' => 0,
+                'message' => 'Tabla de logs no encontrada'
+            ));
+        }
+        
+        $logs = $wpdb->get_results(
+            "SELECT * FROM {$table_name} 
+             ORDER BY created_at DESC 
+             LIMIT 50",
+            ARRAY_A
+        );
+        
+        $total = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
+        
+        wp_send_json_success(array(
+            'logs' => $logs,
+            'total' => $total
         ));
     }
     

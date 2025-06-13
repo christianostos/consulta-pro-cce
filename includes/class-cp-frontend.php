@@ -3,7 +3,7 @@
  * Clase para manejar la funcionalidad del frontend del plugin
  * 
  * Archivo: includes/class-cp-frontend.php
- * CORREGIDO: Ahora usa stored procedures como método principal
+ * CORREGIDO: Sintaxis y parámetros de stored procedures
  */
 
 if (!defined('ABSPATH')) {
@@ -251,7 +251,7 @@ class CP_Frontend {
                         <label for="cp-numero-documento">
                             <?php _e('Número de Documento', 'consulta-procesos'); ?> <span class="required">*</span>
                         </label>
-                        <input type="number" id="cp-numero-documento" name="numero_documento" placeholder="<?php _e('Ingrese el número', 'consulta-procesos'); ?>" required>
+                        <input type="text" id="cp-numero-documento" name="numero_documento" placeholder="<?php _e('Ingrese el número', 'consulta-procesos'); ?>" required>
                     </div>
                 </div>
                 
@@ -293,11 +293,12 @@ class CP_Frontend {
     }
     
     /**
-     * AJAX: Procesar búsqueda del formulario
+     * AJAX: Procesar búsqueda del formulario - MEJORADO CON DEBUGGING
      */
     public function ajax_process_search_form() {
         // Verificar nonce
         if (!wp_verify_nonce($_POST['nonce'], 'cp_frontend_nonce')) {
+            error_log('CP Frontend: Nonce inválido');
             wp_send_json_error(array('message' => 'Token de seguridad inválido'));
         }
         
@@ -307,13 +308,18 @@ class CP_Frontend {
         $fecha_fin = sanitize_text_field($_POST['fecha_fin'] ?? '');
         $numero_documento = sanitize_text_field($_POST['numero_documento'] ?? '');
         
+        // Log para debugging
+        error_log("CP Frontend: Búsqueda iniciada - Perfil: {$profile_type}, Documento: {$numero_documento}, Fechas: {$fecha_inicio} a {$fecha_fin}");
+        
         // Validar datos
         if (empty($profile_type) || empty($fecha_inicio) || empty($fecha_fin) || empty($numero_documento)) {
+            error_log('CP Frontend: Faltan datos requeridos');
             wp_send_json_error(array('message' => 'Faltan datos requeridos'));
         }
         
         // Validar fechas
         if (!$this->validate_date_range($fecha_inicio, $fecha_fin)) {
+            error_log('CP Frontend: Rango de fechas inválido');
             wp_send_json_error(array('message' => 'Rango de fechas inválido'));
         }
         
@@ -321,7 +327,10 @@ class CP_Frontend {
             // Realizar búsquedas según configuración
             $results = $this->perform_searches($profile_type, $fecha_inicio, $fecha_fin, $numero_documento);
             
-            if (empty($results)) {
+            $total_records = $this->count_total_records($results);
+            error_log("CP Frontend: Búsqueda completada - Total de registros: {$total_records}");
+            
+            if (empty($results) || $total_records == 0) {
                 wp_send_json_success(array(
                     'has_results' => false,
                     'message' => __('No se encontraron resultados para los criterios especificados', 'consulta-procesos')
@@ -330,13 +339,13 @@ class CP_Frontend {
                 wp_send_json_success(array(
                     'has_results' => true,
                     'results' => $results,
-                    'total_records' => $this->count_total_records($results)
+                    'total_records' => $total_records
                 ));
             }
             
         } catch (Exception $e) {
             error_log('CP Frontend Search Error: ' . $e->getMessage());
-            wp_send_json_error(array('message' => 'Error interno del servidor'));
+            wp_send_json_error(array('message' => 'Error interno del servidor: ' . $e->getMessage()));
         }
     }
     
@@ -361,7 +370,7 @@ class CP_Frontend {
     }
     
     /**
-     * Realizar búsquedas principales
+     * Realizar búsquedas principales - MEJORADO CON DEBUGGING
      */
     private function perform_searches($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
         $results = array();
@@ -369,31 +378,44 @@ class CP_Frontend {
         
         // Obtener configuración de búsquedas activas
         $search_config = $this->get_search_configuration();
+        error_log("CP Frontend: Configuración de búsqueda: " . json_encode($search_config));
         
         // TVEC
         if ($search_config['tvec']['active']) {
+            error_log("CP Frontend: Iniciando búsqueda TVEC");
             $tvec_results = $this->search_tvec($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['tvec']['method']);
             if (!empty($tvec_results)) {
                 $results['tvec'] = $tvec_results;
                 $total_results += count($tvec_results);
+                error_log("CP Frontend: TVEC - " . count($tvec_results) . " resultados encontrados");
+            } else {
+                error_log("CP Frontend: TVEC - No se encontraron resultados");
             }
         }
         
         // SECOPI
         if ($search_config['secopi']['active']) {
+            error_log("CP Frontend: Iniciando búsqueda SECOPI");
             $secopi_results = $this->search_secopi($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['secopi']['method']);
             if (!empty($secopi_results)) {
                 $results['secopi'] = $secopi_results;
                 $total_results += count($secopi_results);
+                error_log("CP Frontend: SECOPI - " . count($secopi_results) . " resultados encontrados");
+            } else {
+                error_log("CP Frontend: SECOPI - No se encontraron resultados");
             }
         }
         
         // SECOPII
         if ($search_config['secopii']['active']) {
+            error_log("CP Frontend: Iniciando búsqueda SECOPII");
             $secopii_results = $this->search_secopii($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['secopii']['method']);
             if (!empty($secopii_results)) {
                 $results['secopii'] = $secopii_results;
                 $total_results += count($secopii_results);
+                error_log("CP Frontend: SECOPII - " . count($secopii_results) . " resultados encontrados");
+            } else {
+                error_log("CP Frontend: SECOPII - No se encontraron resultados");
             }
         }
         
@@ -437,10 +459,11 @@ class CP_Frontend {
     }
     
     /**
-     * Buscar TVEC en base de datos - CORREGIDO PARA USAR STORED PROCEDURES
+     * Buscar TVEC en base de datos - CORREGIDO
      */
     private function search_tvec_database($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
         if (!$this->db) {
+            error_log('CP Frontend: Base de datos no disponible');
             return array();
         }
         
@@ -474,10 +497,11 @@ class CP_Frontend {
     }
     
     /**
-     * Buscar SECOPI en base de datos - CORREGIDO PARA USAR STORED PROCEDURES
+     * Buscar SECOPI en base de datos - CORREGIDO
      */
     private function search_secopi_database($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
         if (!$this->db) {
+            error_log('CP Frontend: Base de datos no disponible');
             return array();
         }
         
@@ -511,10 +535,11 @@ class CP_Frontend {
     }
     
     /**
-     * Buscar SECOPII en base de datos - CORREGIDO PARA USAR STORED PROCEDURES
+     * Buscar SECOPII en base de datos - CORREGIDO
      */
     private function search_secopii_database($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
         if (!$this->db) {
+            error_log('CP Frontend: Base de datos no disponible');
             return array();
         }
         
@@ -531,9 +556,11 @@ class CP_Frontend {
             // PRIORIDAD: Usar stored procedures
             if ($this->stored_procedures_available()) {
                 if ($profile_type === 'entidades') {
+                    // Para entidades usa @NIT como primer parámetro
                     return $this->execute_stored_procedure($connection, $method, 'IDI.ConsultaContratosPorEntidad_SECOPII', 
                         array($numero_documento, $fecha_inicio, $fecha_fin), 'SECOPII Entidades SP');
                 } else {
+                    // Para proveedores usa @DOC como primer parámetro
                     return $this->execute_stored_procedure($connection, $method, 'IDI.ConsultaContratosPorProveedor_SECOPII', 
                         array($numero_documento, $fecha_inicio, $fecha_fin), 'SECOPII Proveedores SP');
                 }
@@ -548,19 +575,25 @@ class CP_Frontend {
     }
     
     /**
-     * Ejecutar stored procedure - MEJORADO
+     * Ejecutar stored procedure - COMPLETAMENTE CORREGIDO
      */
     private function execute_stored_procedure($connection, $method, $procedure_name, $params, $source_name) {
         try {
-            error_log("CP Frontend: Ejecutando SP {$procedure_name} con parámetros: " . implode(', ', $params));
+            error_log("CP Frontend: Ejecutando SP {$procedure_name} con parámetros: " . json_encode($params));
             
             if (strpos($method, 'PDO') !== false) {
-                // Para PDO
-                $placeholders = str_repeat('?,', count($params) - 1) . '?';
-                $sql = "EXEC {$procedure_name} {$placeholders}";
+                // Para PDO - Sintaxis corregida
+                $sql = "EXEC {$procedure_name} ?, ?, ?";
+                
+                error_log("CP Frontend: SQL PDO: {$sql}");
                 
                 $stmt = $connection->prepare($sql);
-                $stmt->execute($params);
+                $success = $stmt->execute($params);
+                
+                if (!$success) {
+                    $errorInfo = $stmt->errorInfo();
+                    throw new Exception("Error PDO: " . $errorInfo[2]);
+                }
                 
                 $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 
@@ -568,17 +601,29 @@ class CP_Frontend {
                 return $results;
                 
             } else {
-                // Para SQLSRV - Usar sintaxis de llamada correcta
-                $placeholders = str_repeat('?,', count($params) - 1) . '?';
-                $sql = "{ call {$procedure_name}({$placeholders}) }";
+                // Para SQLSRV - Sintaxis corregida
+                $sql = "EXEC {$procedure_name} ?, ?, ?";
                 
-                $stmt = sqlsrv_query($connection, $sql, $params);
+                error_log("CP Frontend: SQL SQLSRV: {$sql}");
+                
+                $stmt = sqlsrv_prepare($connection, $sql, $params);
                 
                 if ($stmt === false) {
                     $errors = sqlsrv_errors();
+                    $error_msg = 'Error preparando SP: ';
+                    foreach ($errors as $error) {
+                        $error_msg .= "[{$error['SQLSTATE']}] {$error['message']} ";
+                    }
+                    throw new Exception($error_msg);
+                }
+                
+                $success = sqlsrv_execute($stmt);
+                
+                if ($success === false) {
+                    $errors = sqlsrv_errors();
                     $error_msg = 'Error ejecutando SP: ';
                     foreach ($errors as $error) {
-                        $error_msg .= $error['message'] . ' ';
+                        $error_msg .= "[{$error['SQLSTATE']}] {$error['message']} ";
                     }
                     throw new Exception($error_msg);
                 }
@@ -611,16 +656,19 @@ class CP_Frontend {
     private function stored_procedures_available() {
         // Verificar configuración
         if (!get_option('cp_use_stored_procedures', true)) {
+            error_log("CP Frontend: Stored procedures deshabilitados en configuración");
             return false;
         }
         
         // Verificar si podemos conectar a la base de datos
         if (!$this->db) {
+            error_log("CP Frontend: DB class no disponible");
             return false;
         }
         
         $connection_result = $this->db->connect();
         if (!$connection_result['success']) {
+            error_log("CP Frontend: No se puede conectar para verificar SPs");
             return false;
         }
         
@@ -628,25 +676,39 @@ class CP_Frontend {
         $method = $connection_result['method'];
         
         try {
-            // Probar un stored procedure simple para verificar disponibilidad
+            // Probar un stored procedure específico para verificar disponibilidad
+            $test_procedures = array(
+                'IDI.ConsultaContratosPorProveedor_SECOPII',
+                'IDI.ConsultaContratosPorEntidad_SECOPII'
+            );
+            
+            $available_count = 0;
+            
             if (strpos($method, 'PDO') !== false) {
-                $stmt = $connection->prepare("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_NAME LIKE 'ConsultaContratosPor%' AND ROUTINE_SCHEMA = 'IDI'");
-                $stmt->execute();
-                $result = $stmt->fetch();
-                $sp_count = $result['count'];
-            } else {
-                $stmt = sqlsrv_query($connection, "SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_NAME LIKE 'ConsultaContratosPor%' AND ROUTINE_SCHEMA = 'IDI'");
-                if ($stmt === false) {
-                    return false;
+                foreach ($test_procedures as $proc_name) {
+                    $stmt = $connection->prepare("SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_NAME = ? AND ROUTINE_SCHEMA = 'IDI'");
+                    $stmt->execute(array(str_replace('IDI.', '', $proc_name)));
+                    $result = $stmt->fetch();
+                    if ($result['count'] > 0) {
+                        $available_count++;
+                    }
                 }
-                $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
-                $sp_count = $row['count'];
-                sqlsrv_free_stmt($stmt);
+            } else {
+                foreach ($test_procedures as $proc_name) {
+                    $stmt = sqlsrv_query($connection, "SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_NAME = ? AND ROUTINE_SCHEMA = 'IDI'", 
+                        array(str_replace('IDI.', '', $proc_name)));
+                    if ($stmt !== false) {
+                        $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+                        if ($row && $row['count'] > 0) {
+                            $available_count++;
+                        }
+                        sqlsrv_free_stmt($stmt);
+                    }
+                }
             }
             
-            // Si encontramos al menos los 6 stored procedures esperados
-            $sp_available = $sp_count >= 6;
-            error_log("CP Frontend: Stored procedures disponibles: " . ($sp_available ? 'SÍ' : 'NO') . " (encontrados: {$sp_count})");
+            $sp_available = $available_count >= 2;
+            error_log("CP Frontend: Stored procedures disponibles: " . ($sp_available ? 'SÍ' : 'NO') . " (encontrados: {$available_count}/2)");
             
             return $sp_available;
             
@@ -660,6 +722,8 @@ class CP_Frontend {
      * Consultas de fallback SQL simplificadas - TVEC
      */
     private function query_tvec_fallback($connection, $method, $profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
+        error_log("CP Frontend: Usando fallback SQL para TVEC");
+        
         if ($profile_type === 'entidades') {
             $sql = "SELECT TOP 1000 * FROM TVEC.V_Ordenes WHERE Fecha BETWEEN ? AND ? AND ID_Entidad LIKE ? ORDER BY Fecha DESC";
             $params = array($fecha_inicio, $fecha_fin, '%' . $numero_documento . '%');
@@ -672,9 +736,11 @@ class CP_Frontend {
     }
     
     /**
-     * Consultas de fallback SQL simplificadas - SECOPI
+     * Consultas de fallback SQL simplificadas - SECOPI  
      */
     private function query_secopi_fallback($connection, $method, $profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
+        error_log("CP Frontend: Usando fallback SQL para SECOPI");
+        
         if ($profile_type === 'entidades') {
             $sql = "SELECT TOP 1000 * FROM SECOPI.T_PTC_Adjudicaciones WHERE FECHA_FIRMA_CONTRATO BETWEEN ? AND ? AND ID_ADJUDICACION LIKE ? ORDER BY FECHA_FIRMA_CONTRATO DESC";
             $params = array($fecha_inicio, $fecha_fin, '%' . $numero_documento . '%');
@@ -690,6 +756,8 @@ class CP_Frontend {
      * Consultas de fallback SQL simplificadas - SECOPII
      */
     private function query_secopii_fallback($connection, $method, $profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
+        error_log("CP Frontend: Usando fallback SQL para SECOPII");
+        
         if ($profile_type === 'entidades') {
             $sql = "SELECT TOP 1000 * FROM SECOPII.V_HistoricoContratos_Depurado WHERE AprovalDate BETWEEN ? AND ? AND [Código Entidad] LIKE ? ORDER BY AprovalDate DESC";
             $params = array($fecha_inicio, $fecha_fin, '%' . $numero_documento . '%');
@@ -702,16 +770,25 @@ class CP_Frontend {
     }
     
     /**
-     * Ejecutar consulta con manejo de errores
+     * Ejecutar consulta con manejo de errores - MEJORADO
      */
     private function execute_query_with_error_handling($connection, $method, $sql, $params, $source_name) {
         try {
+            error_log("CP Frontend: Ejecutando {$source_name} - SQL: {$sql}");
+            error_log("CP Frontend: Parámetros: " . json_encode($params));
+            
             if (strpos($method, 'PDO') !== false) {
                 $stmt = $connection->prepare($sql);
-                $stmt->execute($params);
+                $success = $stmt->execute($params);
+                
+                if (!$success) {
+                    $errorInfo = $stmt->errorInfo();
+                    throw new Exception("Error PDO: " . $errorInfo[2]);
+                }
+                
                 $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 
-                error_log("CP Frontend: {$source_name} - " . count($results) . " registros encontrados");
+                error_log("CP Frontend: {$source_name} - " . count($results) . " registros encontrados via PDO");
                 return $results;
             } else {
                 $stmt = sqlsrv_query($connection, $sql, $params);
@@ -720,7 +797,7 @@ class CP_Frontend {
                     $errors = sqlsrv_errors();
                     $error_msg = 'Error en consulta: ';
                     foreach ($errors as $error) {
-                        $error_msg .= $error['message'] . ' ';
+                        $error_msg .= "[{$error['SQLSTATE']}] {$error['message']} ";
                     }
                     throw new Exception($error_msg);
                 }
@@ -738,7 +815,7 @@ class CP_Frontend {
                 
                 sqlsrv_free_stmt($stmt);
                 
-                error_log("CP Frontend: {$source_name} - " . count($results) . " registros encontrados");
+                error_log("CP Frontend: {$source_name} - " . count($results) . " registros encontrados via SQLSRV");
                 return $results;
             }
         } catch (Exception $e) {

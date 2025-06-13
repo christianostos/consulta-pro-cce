@@ -12,13 +12,319 @@ jQuery(document).ready(function($) {
         initDashboard();
         initConfigPage();
         initQueryPage();
-        initSettingsPage(); // Nueva función para la página de parámetros
+        initSettingsPage();
+        initLogsPage(); // Nueva función para logs
         initModals();
         bindGlobalEvents();
     }
     
     // ========================================
-    // DASHBOARD PRINCIPAL
+    // NUEVA PÁGINA DE LOGS
+    // ========================================
+    
+    function initLogsPage() {
+        // Probar stored procedure
+        $('#test-stored-procedure').on('click', function(e) {
+            e.preventDefault();
+            testStoredProcedure();
+        });
+        
+        // Ejecutar consulta de admin
+        $('#execute-admin-query').on('click', function(e) {
+            e.preventDefault();
+            executeAdminQuery();
+        });
+        
+        // Limpiar consulta de admin
+        $('#clear-admin-query').on('click', function() {
+            $('#admin-sql-query').val('').focus();
+            $('#admin-query-results').html('');
+        });
+        
+        // Actualizar logs del sistema
+        $('#refresh-logs').on('click', function(e) {
+            e.preventDefault();
+            refreshSystemLogs();
+        });
+        
+        // Limpiar logs del sistema
+        $('#clear-logs').on('click', function(e) {
+            e.preventDefault();
+            if (confirm('¿Estás seguro de que quieres limpiar todos los logs?')) {
+                clearSystemLogs();
+            }
+        });
+        
+        // Actualizar logs del frontend
+        $('#refresh-frontend-logs').on('click', function(e) {
+            e.preventDefault();
+            refreshFrontendLogs();
+        });
+        
+        // Auto-cargar logs si estamos en la página de logs
+        if (window.location.href.indexOf('consulta-procesos-logs') !== -1) {
+            setTimeout(function() {
+                refreshSystemLogs();
+                refreshFrontendLogs();
+            }, 500);
+        }
+    }
+    
+    function testStoredProcedure() {
+        var spName = $('#sp-name').val();
+        var param1 = $('#sp-param1').val();
+        var param2 = $('#sp-param2').val();
+        var param3 = $('#sp-param3').val();
+        
+        if (!spName || !param1 || !param2 || !param3) {
+            alert('Por favor, completa todos los campos');
+            return;
+        }
+        
+        var button = $('#test-stored-procedure');
+        var originalText = button.html();
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Ejecutando...');
+        $('#sp-results').html('');
+        
+        ajaxRequest('cp_test_stored_procedure', {
+            sp_name: spName,
+            param1: param1,
+            param2: param2,
+            param3: param3
+        }, function(response) {
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success) {
+                displayStoredProcedureResults(response.data);
+            } else {
+                $('#sp-results').html('<div class="error"><strong>Error:</strong> ' + response.data.message + '</div>');
+            }
+        }, function() {
+            button.prop('disabled', false).html(originalText);
+            $('#sp-results').html('<div class="error">Error de comunicación con el servidor</div>');
+        });
+    }
+    
+    function displayStoredProcedureResults(data) {
+        var html = '<div class="sp-results-success">';
+        html += '<h4>✅ Stored Procedure ejecutado exitosamente</h4>';
+        html += '<p><strong>Resultados:</strong> ' + data.total_rows + ' registros';
+        html += ' | <strong>Tiempo:</strong> ' + data.execution_time + 's';
+        html += ' | <strong>Método:</strong> ' + data.method + '</p>';
+        
+        if (data.sql) {
+            html += '<p><strong>SQL:</strong> <code>' + escapeHtml(data.sql) + '</code></p>';
+        }
+        
+        if (data.results && data.results.length > 0) {
+            html += '<div class="table-responsive" style="max-height: 300px; overflow-y: auto;">';
+            html += '<table class="results-table">';
+            
+            // Headers
+            html += '<thead><tr>';
+            Object.keys(data.results[0]).forEach(function(key) {
+                html += '<th>' + escapeHtml(key) + '</th>';
+            });
+            html += '</tr></thead>';
+            
+            // Datos (máximo 20 filas para performance)
+            html += '<tbody>';
+            data.results.slice(0, 20).forEach(function(row) {
+                html += '<tr>';
+                Object.values(row).forEach(function(value) {
+                    var displayValue = value !== null ? escapeHtml(String(value)) : '<em>NULL</em>';
+                    html += '<td>' + displayValue + '</td>';
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            html += '</div>';
+            
+            if (data.results.length > 20) {
+                html += '<p><em>Mostrando las primeras 20 filas de ' + data.total_rows + ' resultados</em></p>';
+            }
+        } else {
+            html += '<p><em>El stored procedure se ejecutó pero no devolvió resultados</em></p>';
+        }
+        
+        html += '</div>';
+        $('#sp-results').html(html);
+    }
+    
+    function executeAdminQuery() {
+        var sql = $('#admin-sql-query').val().trim();
+        
+        if (!sql) {
+            alert('Por favor, escribe una consulta SQL');
+            return;
+        }
+        
+        var button = $('#execute-admin-query');
+        var originalText = button.html();
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Ejecutando...');
+        $('#admin-query-results').html('');
+        
+        ajaxRequest('cp_execute_admin_query', {
+            sql: sql
+        }, function(response) {
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success) {
+                displayAdminQueryResults(response.data);
+            } else {
+                $('#admin-query-results').html('<div class="error"><strong>Error:</strong> ' + response.data.message + '</div>');
+            }
+        }, function() {
+            button.prop('disabled', false).html(originalText);
+            $('#admin-query-results').html('<div class="error">Error de comunicación con el servidor</div>');
+        });
+    }
+    
+    function displayAdminQueryResults(data) {
+        var html = '<div class="admin-results-success">';
+        html += '<h4>✅ Consulta ejecutada exitosamente</h4>';
+        html += '<p><strong>Resultados:</strong> ' + data.total_rows + ' registros';
+        html += ' | <strong>Tiempo:</strong> ' + data.execution_time + 's';
+        html += ' | <strong>Método:</strong> ' + data.method + '</p>';
+        
+        if (data.results && data.results.length > 0) {
+            html += '<div class="table-responsive" style="max-height: 400px; overflow-y: auto;">';
+            html += '<table class="results-table">';
+            
+            // Headers
+            html += '<thead><tr>';
+            Object.keys(data.results[0]).forEach(function(key) {
+                html += '<th>' + escapeHtml(key) + '</th>';
+            });
+            html += '</tr></thead>';
+            
+            // Datos
+            html += '<tbody>';
+            data.results.forEach(function(row) {
+                html += '<tr>';
+                Object.values(row).forEach(function(value) {
+                    var displayValue = value !== null ? escapeHtml(String(value)) : '<em>NULL</em>';
+                    html += '<td>' + displayValue + '</td>';
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            html += '</div>';
+        } else {
+            html += '<p><em>La consulta se ejecutó pero no devolvió resultados</em></p>';
+        }
+        
+        html += '</div>';
+        $('#admin-query-results').html(html);
+    }
+    
+    function refreshSystemLogs() {
+        var button = $('#refresh-logs');
+        var originalText = button.html();
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Cargando...');
+        
+        ajaxRequest('cp_get_system_logs', {}, function(response) {
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success) {
+                var logs = response.data.logs || 'No hay logs disponibles';
+                $('#system-logs').text(logs);
+                
+                if (response.data.file_size) {
+                    $('.logs-info').text('Archivo: debug.log (' + formatBytes(response.data.file_size) + ')');
+                }
+            } else {
+                $('#system-logs').text('Error al cargar logs');
+            }
+        }, function() {
+            button.prop('disabled', false).html(originalText);
+            $('#system-logs').text('Error de comunicación');
+        });
+    }
+    
+    function clearSystemLogs() {
+        var button = $('#clear-logs');
+        var originalText = button.html();
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Limpiando...');
+        
+        ajaxRequest('cp_clear_system_logs', {}, function(response) {
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success) {
+                $('#system-logs').text('Logs limpiados exitosamente');
+                alert('Logs limpiados exitosamente');
+            } else {
+                alert('Error al limpiar logs: ' + response.data.message);
+            }
+        }, function() {
+            button.prop('disabled', false).html(originalText);
+            alert('Error de comunicación');
+        });
+    }
+    
+    function refreshFrontendLogs() {
+        var button = $('#refresh-frontend-logs');
+        var originalText = button.html();
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Cargando...');
+        
+        ajaxRequest('cp_get_frontend_logs', {}, function(response) {
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success) {
+                displayFrontendLogs(response.data);
+            } else {
+                $('#frontend-logs').html('<div class="error">Error al cargar logs del frontend</div>');
+            }
+        }, function() {
+            button.prop('disabled', false).html(originalText);
+            $('#frontend-logs').html('<div class="error">Error de comunicación</div>');
+        });
+    }
+    
+    function displayFrontendLogs(data) {
+        var html = '';
+        
+        if (data.logs && data.logs.length > 0) {
+            html += '<table class="frontend-logs-table">';
+            html += '<thead><tr>';
+            html += '<th>Fecha</th>';
+            html += '<th>Perfil</th>';
+            html += '<th>Documento</th>';
+            html += '<th>Fechas</th>';
+            html += '<th>Fuentes</th>';
+            html += '<th>Resultados</th>';
+            html += '<th>IP</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+            
+            data.logs.forEach(function(log) {
+                html += '<tr>';
+                html += '<td>' + log.created_at + '</td>';
+                html += '<td>' + log.profile_type + '</td>';
+                html += '<td>' + log.numero_documento + '</td>';
+                html += '<td>' + log.fecha_inicio + ' - ' + log.fecha_fin + '</td>';
+                html += '<td>' + log.search_sources + '</td>';
+                html += '<td>' + log.results_found + '</td>';
+                html += '<td>' + log.ip_address + '</td>';
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+        } else {
+            html = '<div style="color: white; padding: 20px;">No hay logs de búsquedas aún</div>';
+        }
+        
+        $('#frontend-logs').html(html);
+        $('#frontend-logs-count').text('Total: ' + (data.total || 0) + ' búsquedas');
+    }
+    
+    // ========================================
+    // FUNCIONES EXISTENTES (sin cambios)
     // ========================================
     
     function initDashboard() {
@@ -332,7 +638,7 @@ jQuery(document).ready(function($) {
     }
     
     // ========================================
-    // PÁGINA DE CONSULTAS
+    // PÁGINA DE CONSULTAS (funciones existentes sin cambios)
     // ========================================
     
     function initQueryPage() {
@@ -819,6 +1125,14 @@ jQuery(document).ready(function($) {
         return div.innerHTML;
     }
     
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        var k = 1024;
+        var sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        var i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
     // ========================================
     // INICIALIZACIÓN FINAL
     // ========================================
@@ -839,76 +1153,4 @@ jQuery(document).ready(function($) {
             savedQueries: savedQueries
         });
     }
-
-    /**
-     * Gestión de caché
-     */
-    $('#cp-clear-cache').on('click', function(e) {
-        e.preventDefault();
-        
-        var button = $(this);
-        var originalText = button.html();
-        
-        if (!confirm('¿Estás seguro de que quieres limpiar todo el caché de consultas?')) {
-            return;
-        }
-        
-        button.prop('disabled', true).html('<span class="spinner is-active"></span> Limpiando...');
-        
-        ajaxRequest('cp_clear_cache', {}, function(response) {
-            button.prop('disabled', false).html(originalText);
-            
-            if (response.success) {
-                alert('Caché limpiado exitosamente');
-                $('#cp-cache-stats').trigger('click'); // Actualizar estadísticas
-            } else {
-                alert('Error al limpiar caché: ' + (response.data.message || 'Error desconocido'));
-            }
-        }, function() {
-            button.prop('disabled', false).html(originalText);
-            alert('Error de comunicación con el servidor');
-        });
-    });
-
-    /**
-     * Ver estadísticas de caché
-     */
-    $('#cp-cache-stats').on('click', function(e) {
-        e.preventDefault();
-        
-        var button = $(this);
-        var infoDiv = $('#cp-cache-info');
-        var originalText = button.html();
-        
-        button.prop('disabled', true).html('<span class="spinner is-active"></span> Cargando...');
-        
-        ajaxRequest('cp_get_cache_stats', {}, function(response) {
-            button.prop('disabled', false).html(originalText);
-            
-            if (response.success) {
-                var stats = response.data;
-                var html = '<div class="cp-stats-grid">';
-                html += '<div class="stat-item">';
-                html += '<strong>' + stats.cached_queries + '</strong>';
-                html += '<span>Consultas en Caché</span>';
-                html += '</div>';
-                html += '<div class="stat-item">';
-                html += '<strong>' + (stats.cache_enabled ? 'Activo' : 'Inactivo') + '</strong>';
-                html += '<span>Estado del Caché</span>';
-                html += '</div>';
-                html += '<div class="stat-item">';
-                html += '<strong>' + stats.cache_duration + 's</strong>';
-                html += '<span>Duración</span>';
-                html += '</div>';
-                html += '</div>';
-                
-                infoDiv.html(html).show();
-            } else {
-                infoDiv.html('<p class="error">Error al obtener estadísticas</p>').show();
-            }
-        }, function() {
-            button.prop('disabled', false).html(originalText);
-            infoDiv.html('<p class="error">Error de comunicación</p>').show();
-        });
-    });
 });
