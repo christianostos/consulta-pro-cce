@@ -94,7 +94,10 @@ class ConsultaProcesos {
             CP_PLUGIN_PATH . 'includes/class-cp-security.php',
             CP_PLUGIN_PATH . 'includes/class-cp-export.php',
             CP_PLUGIN_PATH . 'includes/class-cp-query-executor.php',
-            CP_PLUGIN_PATH . 'includes/class-cp-frontend.php' // Nuevo archivo del frontend
+            CP_PLUGIN_PATH . 'includes/class-cp-frontend.php',
+            CP_PLUGIN_PATH . 'includes/class-cp-export-advanced.php',
+            CP_PLUGIN_PATH . 'includes/class-cp-results-page.php',
+            CP_PLUGIN_PATH . 'includes/class-cp-logs-admin.php'
         );
         
         foreach ($optional_files as $file) {
@@ -120,6 +123,21 @@ class ConsultaProcesos {
         // Inicializar ejecutor de consultas
         if (class_exists('CP_Query_Executor')) {
             $this->query_executor = CP_Query_Executor::get_instance();
+        }
+        
+        // Inicializar sistema de exportación avanzado
+        if (class_exists('CP_Export_Advanced')) {
+            $this->export_advanced = CP_Export_Advanced::get_instance();
+        }
+        
+        // Inicializar página de resultados
+        if (class_exists('CP_Results_Page')) {
+            $this->results_page = CP_Results_Page::get_instance();
+        }
+        
+        // Inicializar logs de administración
+        if (class_exists('CP_Logs_Admin')) {
+            $this->logs_admin = CP_Logs_Admin::get_instance();
         }
     }
     
