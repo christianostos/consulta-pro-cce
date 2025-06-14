@@ -4,6 +4,7 @@
  * 
  * Archivo: includes/class-cp-frontend.php
  * CORREGIDO: Sintaxis y parámetros de stored procedures
+ * AGREGADO: Indicador de progreso para consultas
  */
 
 if (!defined('ABSPATH')) {
@@ -46,6 +47,10 @@ class CP_Frontend {
         // Hook para procesar formulario
         add_action('wp_ajax_cp_process_search_form', array($this, 'ajax_process_search_form'));
         add_action('wp_ajax_nopriv_cp_process_search_form', array($this, 'ajax_process_search_form'));
+        
+        // NUEVO: Hook para obtener progreso de búsqueda
+        add_action('wp_ajax_cp_get_search_progress', array($this, 'ajax_get_search_progress'));
+        add_action('wp_ajax_nopriv_cp_get_search_progress', array($this, 'ajax_get_search_progress'));
     }
     
     /**
@@ -81,7 +86,17 @@ class CP_Frontend {
                     'no_results' => __('No se encontraron resultados', 'consulta-procesos'),
                     'accept_terms' => __('Debe aceptar los términos de uso', 'consulta-procesos'),
                     'select_profile' => __('Debe seleccionar un perfil', 'consulta-procesos'),
-                    'fill_dates' => __('Debe completar las fechas', 'consulta-procesos')
+                    'fill_dates' => __('Debe completar las fechas', 'consulta-procesos'),
+                    'progress' => array(
+                        'initializing' => __('Inicializando búsqueda...', 'consulta-procesos'),
+                        'connecting' => __('Conectando a base de datos...', 'consulta-procesos'),
+                        'searching_tvec' => __('Consultando TVEC...', 'consulta-procesos'),
+                        'searching_secopi' => __('Consultando SECOPI...', 'consulta-procesos'),
+                        'searching_secopii' => __('Consultando SECOPII...', 'consulta-procesos'),
+                        'processing_results' => __('Procesando resultados...', 'consulta-procesos'),
+                        'completed' => __('Búsqueda completada', 'consulta-procesos'),
+                        'error' => __('Error en la consulta', 'consulta-procesos')
+                    )
                 )
             ));
         }
@@ -132,6 +147,27 @@ class CP_Frontend {
             <!-- Etapa 3: Formulario de Búsqueda -->
             <div class="cp-form-step cp-step-3">
                 <?php $this->render_search_step(); ?>
+            </div>
+            
+            <!-- NUEVO: Indicador de progreso de búsqueda -->
+            <div class="cp-search-progress-container" style="display: none;">
+                <div class="cp-search-progress-header">
+                    <h3><?php _e('Procesando Búsqueda', 'consulta-procesos'); ?></h3>
+                    <div class="cp-overall-progress">
+                        <div class="cp-progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="cp-progress-percentage">0%</div>
+                </div>
+                
+                <div class="cp-search-sources-progress">
+                    <!-- Estos se generarán dinámicamente via JavaScript -->
+                </div>
+                
+                <div class="cp-progress-actions">
+                    <button type="button" class="cp-btn cp-btn-secondary" id="cp-cancel-search" style="display: none;">
+                        <?php _e('Cancelar', 'consulta-procesos'); ?>
+                    </button>
+                </div>
             </div>
             
             <!-- Resultados -->
@@ -293,7 +329,7 @@ class CP_Frontend {
     }
     
     /**
-     * AJAX: Procesar búsqueda del formulario - MEJORADO CON DEBUGGING
+     * AJAX: Procesar búsqueda del formulario - MEJORADO CON PROGRESO
      */
     public function ajax_process_search_form() {
         // Verificar nonce
@@ -324,29 +360,343 @@ class CP_Frontend {
         }
         
         try {
-            // Realizar búsquedas según configuración
-            $results = $this->perform_searches($profile_type, $fecha_inicio, $fecha_fin, $numero_documento);
+            // Generar ID único para esta búsqueda
+            $search_id = 'cp_search_' . uniqid();
             
-            $total_records = $this->count_total_records($results);
-            error_log("CP Frontend: Búsqueda completada - Total de registros: {$total_records}");
+            // Inicializar progreso con parámetros de búsqueda
+            $this->init_search_progress($search_id, $profile_type, $fecha_inicio, $fecha_fin, $numero_documento);
             
-            if (empty($results) || $total_records == 0) {
-                wp_send_json_success(array(
-                    'has_results' => false,
-                    'message' => __('No se encontraron resultados para los criterios especificados', 'consulta-procesos')
-                ));
-            } else {
-                wp_send_json_success(array(
-                    'has_results' => true,
-                    'results' => $results,
-                    'total_records' => $total_records
-                ));
-            }
+            // Iniciar búsqueda en background inmediatamente
+            $this->start_actual_search($search_id);
+            
+            // Enviar ID de búsqueda al cliente para que pueda hacer seguimiento
+            wp_send_json_success(array(
+                'search_started' => true,
+                'search_id' => $search_id,
+                'message' => __('Búsqueda iniciada', 'consulta-procesos')
+            ));
             
         } catch (Exception $e) {
             error_log('CP Frontend Search Error: ' . $e->getMessage());
             wp_send_json_error(array('message' => 'Error interno del servidor: ' . $e->getMessage()));
         }
+    }
+    
+    /**
+     * NUEVO: AJAX para obtener progreso de búsqueda
+     */
+    public function ajax_get_search_progress() {
+        // Verificar nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'cp_frontend_nonce')) {
+            wp_send_json_error(array('message' => 'Token de seguridad inválido'));
+        }
+        
+        $search_id = sanitize_text_field($_POST['search_id'] ?? '');
+        
+        if (empty($search_id)) {
+            wp_send_json_error(array('message' => 'ID de búsqueda requerido'));
+        }
+        
+        // Ejecutar siguiente paso de búsqueda y obtener progreso
+        $progress = $this->execute_next_search_step($search_id);
+        
+        if ($progress === false) {
+            wp_send_json_error(array('message' => 'Búsqueda no encontrada o expirada'));
+        }
+        
+        wp_send_json_success($progress);
+    }
+    
+    /**
+     * NUEVO: Inicializar progreso de búsqueda
+     */
+    private function init_search_progress($search_id, $profile_type = '', $fecha_inicio = '', $fecha_fin = '', $numero_documento = '') {
+        // Obtener configuración de búsquedas activas
+        $search_config = $this->get_search_configuration();
+        $active_sources = array();
+        
+        foreach ($search_config as $source => $config) {
+            if ($config['active']) {
+                $active_sources[] = $source;
+            }
+        }
+        
+        $progress_data = array(
+            'search_id' => $search_id,
+            'status' => 'initializing',
+            'overall_progress' => 0,
+            'current_step' => 'initializing',
+            'message' => __('Inicializando búsqueda...', 'consulta-procesos'),
+            'active_sources' => $active_sources,
+            'sources_progress' => array(),
+            'total_sources' => count($active_sources),
+            'completed_sources' => 0,
+            'results' => array(),
+            'total_records' => 0,
+            'start_time' => time(),
+            'last_update' => time(),
+            // NUEVO: Almacenar parámetros de búsqueda
+            'search_params' => array(
+                'profile_type' => $profile_type,
+                'fecha_inicio' => $fecha_inicio,
+                'fecha_fin' => $fecha_fin,
+                'numero_documento' => $numero_documento
+            )
+        );
+        
+        // Inicializar progreso de cada fuente
+        foreach ($active_sources as $source) {
+            $progress_data['sources_progress'][$source] = array(
+                'status' => 'pending',
+                'progress' => 0,
+                'message' => __('Pendiente', 'consulta-procesos'),
+                'records_found' => 0,
+                'error' => null
+            );
+        }
+        
+        // Guardar en transient (expira en 10 minutos)
+        set_transient($search_id, $progress_data, 600);
+        
+        return $progress_data;
+    }
+    
+    /**
+     * NUEVO: Obtener progreso de búsqueda
+     */
+    private function get_search_progress($search_id) {
+        return get_transient($search_id);
+    }
+    
+    /**
+     * NUEVO: Actualizar progreso de búsqueda
+     */
+    private function update_search_progress($search_id, $updates) {
+        $progress = get_transient($search_id);
+        
+        if ($progress === false) {
+            return false;
+        }
+        
+        // Actualizar datos
+        foreach ($updates as $key => $value) {
+            $progress[$key] = $value;
+        }
+        
+        $progress['last_update'] = time();
+        
+        // Calcular progreso general
+        if (isset($progress['sources_progress'])) {
+            $total_progress = 0;
+            $completed_count = 0;
+            
+            foreach ($progress['sources_progress'] as $source_progress) {
+                $total_progress += $source_progress['progress'];
+                if ($source_progress['status'] === 'completed' || $source_progress['status'] === 'error') {
+                    $completed_count++;
+                }
+            }
+            
+            $progress['overall_progress'] = count($progress['sources_progress']) > 0 
+                ? round($total_progress / count($progress['sources_progress'])) 
+                : 0;
+            $progress['completed_sources'] = $completed_count;
+            
+            // Si todas las fuentes están completadas
+            if ($completed_count >= $progress['total_sources']) {
+                $progress['status'] = 'completed';
+                $progress['overall_progress'] = 100;
+                $progress['message'] = __('Búsqueda completada', 'consulta-procesos');
+            }
+        }
+        
+        // Guardar progreso actualizado
+        set_transient($search_id, $progress, 600);
+        
+        return $progress;
+    }
+    
+    /**
+     * NUEVO: Iniciar búsqueda real con seguimiento de progreso
+     */
+    private function start_actual_search($search_id) {
+        // No ejecutar búsqueda completa aquí, solo marcar como iniciada
+        $this->update_search_progress($search_id, array(
+            'status' => 'running',
+            'message' => __('Búsqueda iniciada...', 'consulta-procesos')
+        ));
+        
+        error_log("CP Frontend: Búsqueda marcada como iniciada para search_id: " . $search_id);
+    }
+    
+    /**
+     * NUEVO: Ejecutar siguiente paso de búsqueda
+     */
+    private function execute_next_search_step($search_id) {
+        $progress = get_transient($search_id);
+        
+        if ($progress === false) {
+            error_log('CP Frontend: Progreso no encontrado para search_id: ' . $search_id);
+            return false;
+        }
+        
+        if ($progress['status'] === 'completed') {
+            error_log('CP Frontend: Búsqueda ya completada para search_id: ' . $search_id);
+            return $progress;
+        }
+        
+        if ($progress['status'] === 'error') {
+            error_log('CP Frontend: Búsqueda en error para search_id: ' . $search_id);
+            return $progress;
+        }
+        
+        // Verificar que tenemos los parámetros de búsqueda
+        if (!isset($progress['search_params']) || empty($progress['search_params']['profile_type'])) {
+            error_log('CP Frontend: Parámetros de búsqueda no encontrados');
+            $this->update_search_progress($search_id, array(
+                'status' => 'error',
+                'message' => 'Error: parámetros de búsqueda no encontrados'
+            ));
+            return $this->get_search_progress($search_id);
+        }
+        
+        $search_params = $progress['search_params'];
+        $profile_type = $search_params['profile_type'];
+        $fecha_inicio = $search_params['fecha_inicio'];
+        $fecha_fin = $search_params['fecha_fin'];
+        $numero_documento = $search_params['numero_documento'];
+        
+        // CORREGIDO: Buscar siguiente fuente pendiente (no running)
+        $next_source = null;
+        $pending_sources = array();
+        $running_sources = array();
+        $completed_sources = array();
+        
+        foreach ($progress['sources_progress'] as $source => $source_progress) {
+            if ($source_progress['status'] === 'pending') {
+                $pending_sources[] = $source;
+                if ($next_source === null) {
+                    $next_source = $source;
+                }
+            } elseif ($source_progress['status'] === 'running') {
+                $running_sources[] = $source;
+            } elseif ($source_progress['status'] === 'completed' || $source_progress['status'] === 'error') {
+                $completed_sources[] = $source;
+            }
+        }
+        
+        error_log("CP Frontend: Estado de fuentes - Pendientes: " . implode(',', $pending_sources) . 
+                  " | En progreso: " . implode(',', $running_sources) . 
+                  " | Completadas: " . implode(',', $completed_sources));
+        
+        // Si hay fuentes en "running", NO ejecutar nuevas hasta que terminen
+        if (!empty($running_sources)) {
+            error_log("CP Frontend: Hay fuentes en progreso (" . implode(',', $running_sources) . "), esperando...");
+            // Solo devolver el progreso actual sin ejecutar nada nuevo
+            return $progress;
+        }
+        
+        // Solo ejecutar si no hay nada "running" y hay algo "pending"
+        if ($next_source && empty($running_sources)) {
+            // Ejecutar búsqueda para esta fuente
+            error_log("CP Frontend: Ejecutando búsqueda para fuente: " . $next_source);
+            
+            // Marcar como en progreso INMEDIATAMENTE
+            $this->update_source_progress($search_id, $next_source, 'running', 10, __('Consultando...', 'consulta-procesos'));
+            
+            // Usar try-catch para asegurar que siempre se marca como completada
+            try {
+                $search_config = $this->get_search_configuration();
+                $method = $search_config[$next_source]['method'];
+                
+                $results = array();
+                $start_time = microtime(true);
+                
+                switch ($next_source) {
+                    case 'tvec':
+                        error_log("CP Frontend: Ejecutando consulta TVEC...");
+                        $results = $this->search_tvec($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $method);
+                        break;
+                    case 'secopi':
+                        error_log("CP Frontend: Ejecutando consulta SECOPI...");
+                        $results = $this->search_secopi($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $method);
+                        break;
+                    case 'secopii':
+                        error_log("CP Frontend: Ejecutando consulta SECOPII...");
+                        $results = $this->search_secopii($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $method);
+                        break;
+                }
+                
+                $end_time = microtime(true);
+                $execution_time = round(($end_time - $start_time), 2);
+                $records_count = count($results);
+                
+                error_log("CP Frontend: Consulta {$next_source} terminada en {$execution_time}s con {$records_count} registros");
+                
+                // CRÍTICO: Marcar como completada SIEMPRE
+                $this->update_source_progress($search_id, $next_source, 'completed', 100, 
+                    $records_count > 0 ? "{$records_count} registros encontrados" : __('Sin resultados', 'consulta-procesos'), 
+                    $records_count);
+                
+                // Guardar resultados si hay
+                if ($records_count > 0) {
+                    $current_progress = get_transient($search_id);
+                    if (!isset($current_progress['results'])) {
+                        $current_progress['results'] = array();
+                    }
+                    $current_progress['results'][$next_source] = $results;
+                    set_transient($search_id, $current_progress, 600);
+                    error_log("CP Frontend: Resultados de {$next_source} guardados");
+                }
+                
+            } catch (Exception $e) {
+                error_log("CP Frontend: ERROR en fuente {$next_source}: " . $e->getMessage());
+                // CRÍTICO: Marcar como error para que no se reinicie
+                $this->update_source_progress($search_id, $next_source, 'error', 100, 'Error: ' . $e->getMessage());
+            }
+        }
+        
+        // Obtener progreso actualizado y verificar completitud
+        $current_progress = get_transient($search_id);
+        
+        if (!$current_progress) {
+            error_log("CP Frontend: Error obteniendo progreso actualizado");
+            return false;
+        }
+        
+        // Verificar si TODAS las fuentes están completadas (completed o error)
+        $all_completed = true;
+        $total_records = 0;
+        $status_summary = array();
+        
+        foreach ($current_progress['sources_progress'] as $source => $source_progress) {
+            $status_summary[] = "{$source}: {$source_progress['status']}";
+            
+            if ($source_progress['status'] !== 'completed' && $source_progress['status'] !== 'error') {
+                $all_completed = false;
+            }
+            if ($source_progress['status'] === 'completed') {
+                $total_records += $source_progress['records_found'];
+            }
+        }
+        
+        error_log("CP Frontend: Estado actual - " . implode(', ', $status_summary));
+        
+        if ($all_completed) {
+            // Registrar búsqueda en el log
+            $this->log_frontend_search($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $total_records);
+            
+            $this->update_search_progress($search_id, array(
+                'status' => 'completed',
+                'total_records' => $total_records,
+                'overall_progress' => 100,
+                'message' => __('Búsqueda completada', 'consulta-procesos')
+            ));
+            
+            error_log("CP Frontend: *** BÚSQUEDA COMPLETADA *** search_id: {$search_id} con {$total_records} registros totales");
+        }
+        
+        return get_transient($search_id);
     }
     
     /**
@@ -370,7 +720,149 @@ class CP_Frontend {
     }
     
     /**
-     * Realizar búsquedas principales - MEJORADO CON DEBUGGING
+     * MODIFICADO: Realizar búsquedas principales con seguimiento de progreso
+     */
+    private function perform_searches_with_progress($search_id, $profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
+        $results = array();
+        $total_results = 0;
+        
+        // Obtener configuración de búsquedas activas
+        $search_config = $this->get_search_configuration();
+        error_log("CP Frontend: Configuración de búsqueda: " . json_encode($search_config));
+        
+        // TVEC
+        if ($search_config['tvec']['active']) {
+            $this->update_source_progress($search_id, 'tvec', 'running', 0, __('Consultando TVEC...', 'consulta-procesos'));
+            
+            error_log("CP Frontend: Iniciando búsqueda TVEC");
+            $tvec_results = $this->search_tvec($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['tvec']['method']);
+            
+            if (!empty($tvec_results)) {
+                $results['tvec'] = $tvec_results;
+                $total_results += count($tvec_results);
+                error_log("CP Frontend: TVEC - " . count($tvec_results) . " resultados encontrados");
+                $this->update_source_progress($search_id, 'tvec', 'completed', 100, count($tvec_results) . ' resultados encontrados', count($tvec_results));
+            } else {
+                error_log("CP Frontend: TVEC - No se encontraron resultados");
+                $this->update_source_progress($search_id, 'tvec', 'completed', 100, __('Sin resultados', 'consulta-procesos'), 0);
+            }
+        }
+        
+        // SECOPI
+        if ($search_config['secopi']['active']) {
+            $this->update_source_progress($search_id, 'secopi', 'running', 0, __('Consultando SECOPI...', 'consulta-procesos'));
+            
+            error_log("CP Frontend: Iniciando búsqueda SECOPI");
+            $secopi_results = $this->search_secopi($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['secopi']['method']);
+            
+            if (!empty($secopi_results)) {
+                $results['secopi'] = $secopi_results;
+                $total_results += count($secopi_results);
+                error_log("CP Frontend: SECOPI - " . count($secopi_results) . " resultados encontrados");
+                $this->update_source_progress($search_id, 'secopi', 'completed', 100, count($secopi_results) . ' resultados encontrados', count($secopi_results));
+            } else {
+                error_log("CP Frontend: SECOPI - No se encontraron resultados");
+                $this->update_source_progress($search_id, 'secopi', 'completed', 100, __('Sin resultados', 'consulta-procesos'), 0);
+            }
+        }
+        
+        // SECOPII
+        if ($search_config['secopii']['active']) {
+            $this->update_source_progress($search_id, 'secopii', 'running', 0, __('Consultando SECOPII...', 'consulta-procesos'));
+            
+            error_log("CP Frontend: Iniciando búsqueda SECOPII");
+            $secopii_results = $this->search_secopii($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['secopii']['method']);
+            
+            if (!empty($secopii_results)) {
+                $results['secopii'] = $secopii_results;
+                $total_results += count($secopii_results);
+                error_log("CP Frontend: SECOPII - " . count($secopii_results) . " resultados encontrados");
+                $this->update_source_progress($search_id, 'secopii', 'completed', 100, count($secopii_results) . ' resultados encontrados', count($secopii_results));
+            } else {
+                error_log("CP Frontend: SECOPII - No se encontraron resultados");
+                $this->update_source_progress($search_id, 'secopii', 'completed', 100, __('Sin resultados', 'consulta-procesos'), 0);
+            }
+        }
+        
+        return $results;
+    }
+    
+    /**
+     * NUEVO: Actualizar progreso de una fuente específica
+     */
+    private function update_source_progress($search_id, $source, $status, $progress, $message, $records_found = 0) {
+        $current_progress = get_transient($search_id);
+        
+        if ($current_progress === false) {
+            error_log("CP Frontend: No se pudo obtener progreso para actualizar fuente {$source}");
+            return false;
+        }
+        
+        if (!isset($current_progress['sources_progress'][$source])) {
+            error_log("CP Frontend: Fuente {$source} no existe en el progreso");
+            return false;
+        }
+        
+        // CRÍTICO: Solo permitir transiciones válidas para evitar regresiones
+        $current_status = $current_progress['sources_progress'][$source]['status'];
+        
+        // Si ya está completada o en error, NO permitir cambios (excepto de pending a cualquier cosa)
+        if (($current_status === 'completed' || $current_status === 'error') && $status !== $current_status) {
+            error_log("CP Frontend: BLOQUEANDO cambio inválido en {$source}: {$current_status} -> {$status}");
+            return false;
+        }
+        
+        // Log del cambio de estado
+        if ($current_status !== $status) {
+            error_log("CP Frontend: Cambiando estado de {$source}: {$current_status} -> {$status}");
+        }
+        
+        // Actualizar solo esta fuente específica
+        $current_progress['sources_progress'][$source]['status'] = $status;
+        $current_progress['sources_progress'][$source]['progress'] = $progress;
+        $current_progress['sources_progress'][$source]['message'] = $message;
+        $current_progress['sources_progress'][$source]['records_found'] = $records_found;
+        $current_progress['last_update'] = time();
+        
+        error_log("CP Frontend: Fuente {$source} actualizada - Status: {$status}, Progress: {$progress}%, Registros: {$records_found}");
+        
+        // Recalcular progreso general basado en fuentes completadas
+        $total_sources = count($current_progress['sources_progress']);
+        $completed_sources = 0;
+        $total_progress = 0;
+        
+        foreach ($current_progress['sources_progress'] as $src => $src_progress) {
+            if ($src_progress['status'] === 'completed' || $src_progress['status'] === 'error') {
+                $completed_sources++;
+                $total_progress += 100; // Cada fuente completada contribuye 100%
+            } else if ($src_progress['status'] === 'running') {
+                $total_progress += $src_progress['progress']; // Progreso parcial
+            }
+            // Las fuentes 'pending' contribuyen 0%
+        }
+        
+        $overall_progress = $total_sources > 0 ? round($total_progress / $total_sources) : 0;
+        
+        // Solo actualizar el progreso general si cambió
+        if ($current_progress['overall_progress'] !== $overall_progress) {
+            $current_progress['overall_progress'] = $overall_progress;
+            $current_progress['completed_sources'] = $completed_sources;
+            error_log("CP Frontend: Progreso general actualizado: {$overall_progress}% ({$completed_sources}/{$total_sources} fuentes)");
+        }
+        
+        // Guardar progreso actualizado
+        $success = set_transient($search_id, $current_progress, 600);
+        
+        if (!$success) {
+            error_log("CP Frontend: ERROR guardando progreso para {$search_id}");
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * MANTENER: Realizar búsquedas principales - ORIGINAL (sin modificar)
      */
     private function perform_searches($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
         $results = array();
@@ -940,9 +1432,9 @@ class CP_Frontend {
             return false;
         }
         
-        // No permitir rangos muy amplios (máximo 1 año)
+        // No permitir rangos muy amplios (máximo 5 años)
         $diff = $inicio->diff($fin);
-        if ($diff->days > 365) {
+        if ($diff->y >= 5 && ($diff->m > 0 || $diff->d > 0)) {
             return false;
         }
         

@@ -1,6 +1,7 @@
 /* 
  * Estilos del frontend para el plugin Consulta Procesos
  * Archivo: assets/css/frontend.css
+ * AGREGADO: Estilos para indicador de progreso
  */
 
 /* Contenedor principal */
@@ -352,6 +353,229 @@
     text-transform: capitalize;
 }
 
+/* NUEVO: Indicador de progreso de búsqueda */
+.cp-search-progress-container {
+    padding: 40px;
+    background: linear-gradient(135deg, #233A79 0%, #3F4C6B 100%);
+    color: white;
+    animation: progressSlideIn 0.5s ease;
+}
+
+@keyframes progressSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.cp-search-progress-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.cp-search-progress-header h3 {
+    color: white;
+    font-size: 24px;
+    margin-bottom: 20px;
+    font-weight: 600;
+}
+
+.cp-overall-progress {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 25px;
+    height: 12px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    position: relative;
+}
+
+.cp-progress-bar-fill {
+    background: linear-gradient(90deg, #28a745, #20c997);
+    height: 100%;
+    border-radius: 25px;
+    transition: width 0.8s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.cp-progress-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    animation: progressShimmer 2s infinite;
+}
+
+@keyframes progressShimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.cp-progress-percentage {
+    font-size: 18px;
+    font-weight: 600;
+    color: white;
+}
+
+/* Progreso de fuentes de datos */
+.cp-search-sources-progress {
+    display: grid;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.cp-source-progress {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 20px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: all 0.3s ease;
+}
+
+.cp-source-progress:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
+}
+
+.cp-source-progress.pending {
+    opacity: 0.7;
+}
+
+.cp-source-progress.running {
+    animation: sourcePulse 2s infinite;
+}
+
+.cp-source-progress.completed {
+    background: rgba(40, 167, 69, 0.2);
+    border-color: rgba(40, 167, 69, 0.4);
+}
+
+.cp-source-progress.error {
+    background: rgba(220, 53, 69, 0.2);
+    border-color: rgba(220, 53, 69, 0.4);
+}
+
+@keyframes sourcePulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
+}
+
+.cp-source-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+    gap: 12px;
+}
+
+.cp-source-icon {
+    font-size: 20px;
+    color: rgba(255, 255, 255, 0.9);
+    transition: all 0.3s ease;
+}
+
+.cp-source-progress.running .cp-source-icon .dashicons-update-alt {
+    animation: spin 1s linear infinite;
+}
+
+.cp-source-progress.completed .cp-source-icon {
+    color: #28a745;
+}
+
+.cp-source-progress.error .cp-source-icon {
+    color: #dc3545;
+}
+
+.cp-source-title {
+    font-weight: 600;
+    font-size: 16px;
+    color: white;
+    flex: 1;
+}
+
+.cp-source-status {
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.cp-source-progress.completed .cp-source-status {
+    background: rgba(40, 167, 69, 0.3);
+    color: #28a745;
+}
+
+.cp-source-progress.error .cp-source-status {
+    background: rgba(220, 53, 69, 0.3);
+    color: #dc3545;
+}
+
+.cp-source-progress-bar {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    height: 8px;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+
+.cp-source-progress-fill {
+    background: linear-gradient(90deg, #00d4ff, #007cba);
+    height: 100%;
+    border-radius: 10px;
+    transition: width 0.5s ease;
+    position: relative;
+}
+
+.cp-source-progress.completed .cp-source-progress-fill {
+    background: linear-gradient(90deg, #28a745, #20c997);
+}
+
+.cp-source-progress.error .cp-source-progress-fill {
+    background: linear-gradient(90deg, #dc3545, #fd7e14);
+}
+
+.cp-source-details {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+}
+
+.cp-source-message {
+    color: rgba(255, 255, 255, 0.9);
+    flex: 1;
+}
+
+.cp-source-records {
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 500;
+    padding: 2px 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    font-size: 12px;
+}
+
+.cp-source-progress.completed .cp-source-records {
+    background: rgba(40, 167, 69, 0.2);
+    color: white;
+}
+
+/* Acciones de progreso */
+.cp-progress-actions {
+    text-align: center;
+}
+
 /* Botones */
 .cp-form-actions {
     display: flex;
@@ -415,6 +639,55 @@
     to { transform: rotate(360deg); }
 }
 
+/* Resultados parciales y timeout */
+.cp-partial-results {
+    background: #fff3cd !important;
+    border-left-color: #ffc107 !important;
+}
+
+.cp-partial-results p {
+    color: #856404 !important;
+}
+
+.cp-timeout-info {
+    background: #d1ecf1;
+    color: #0c5460;
+    padding: 15px 20px;
+    border-radius: 6px;
+    border: 1px solid #bee5eb;
+    margin: 15px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: messageSlideIn 0.3s ease;
+}
+
+.cp-timeout-info .dashicons {
+    font-size: 18px;
+    color: #0c5460;
+}
+
+.cp-partial-no-results {
+    text-align: center;
+    padding: 30px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    color: #6c757d;
+    margin: 20px 0;
+}
+
+.cp-partial-no-results .dashicons {
+    font-size: 32px;
+    margin-bottom: 10px;
+    opacity: 0.7;
+    display: block;
+}
+
+.cp-partial-no-results p {
+    margin: 0;
+    font-style: italic;
+}
+
 /* Resultados */
 .cp-results-container {
     margin-top: 30px;
@@ -429,6 +702,19 @@
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.cp-results-summary {
+    background: #e7f3ff;
+    padding: 15px 20px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    border-left: 4px solid #007cba;
+}
+
+.cp-results-summary p {
+    margin: 0;
+    color: #495057;
 }
 
 .cp-results-content {
@@ -456,10 +742,16 @@
     gap: 8px;
 }
 
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
 .cp-result-table {
     width: 100%;
     border-collapse: collapse;
     margin-top: 10px;
+    font-size: 14px;
 }
 
 .cp-result-table th,
@@ -467,16 +759,42 @@
     padding: 12px;
     text-align: left;
     border-bottom: 1px solid #e9ecef;
+    vertical-align: top;
 }
 
 .cp-result-table th {
     background: #f8f9fa;
     font-weight: 600;
     color: #495057;
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 .cp-result-table tr:hover {
     background: #f8f9fa;
+}
+
+.cp-result-table td {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cp-result-table td:hover {
+    white-space: normal;
+    overflow: visible;
+    word-wrap: break-word;
+}
+
+.cp-more-records {
+    text-align: center;
+    color: #6c757d;
+    font-style: italic;
+    background: #f8f9fa !important;
+    font-weight: 500;
 }
 
 .cp-no-results {
@@ -489,6 +807,11 @@
     font-size: 48px;
     margin-bottom: 15px;
     opacity: 0.5;
+}
+
+.cp-no-results h4 {
+    color: #495057;
+    margin-bottom: 10px;
 }
 
 /* Estados de carga */
@@ -517,6 +840,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    animation: messageSlideIn 0.3s ease;
 }
 
 .cp-success-message {
@@ -529,6 +853,18 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    animation: messageSlideIn 0.3s ease;
+}
+
+@keyframes messageSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* Responsive */
@@ -544,6 +880,10 @@
     }
     
     .cp-form-step {
+        padding: 20px;
+    }
+    
+    .cp-search-progress-container {
         padding: 20px;
     }
     
@@ -588,12 +928,27 @@
     }
     
     .cp-result-table {
-        font-size: 14px;
+        font-size: 12px;
     }
     
     .cp-result-table th,
     .cp-result-table td {
         padding: 8px;
+    }
+    
+    .cp-search-sources-progress {
+        grid-template-columns: 1fr;
+    }
+    
+    .cp-source-header {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .cp-source-details {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
     }
 }
 
@@ -617,6 +972,24 @@
     .cp-search-form {
         padding: 20px;
     }
+    
+    .cp-search-progress-header h3 {
+        font-size: 20px;
+    }
+    
+    .cp-source-progress {
+        padding: 15px;
+    }
+    
+    .cp-source-title {
+        font-size: 14px;
+    }
+    
+    .cp-result-table th,
+    .cp-result-table td {
+        padding: 6px;
+        font-size: 11px;
+    }
 }
 
 /* Accesibilidad */
@@ -628,11 +1001,40 @@
     }
 }
 
+/* Alto contraste */
+@media (prefers-contrast: high) {
+    .cp-frontend-container {
+        border: 2px solid #000;
+    }
+    
+    .cp-btn-primary {
+        background: #000;
+        color: #fff;
+        border: 2px solid #000;
+    }
+    
+    .cp-btn-secondary {
+        background: #fff;
+        color: #000;
+        border: 2px solid #000;
+    }
+    
+    .cp-search-progress-container {
+        background: #000;
+        color: #fff;
+    }
+    
+    .cp-source-progress {
+        border: 1px solid #fff;
+    }
+}
+
 /* Modo oscuro (para temas que lo soporten) */
 @media (prefers-color-scheme: dark) {
     .cp-frontend-container {
         background: #1a1a1a;
         color: #e0e0e0;
+        border: 1px solid #404040;
     }
     
     .cp-frontend-title {
@@ -664,4 +1066,130 @@
         border-color: #404040;
         color: #e0e0e0;
     }
+    
+    .cp-form-group input:focus {
+        border-color: #007cba;
+    }
+    
+    .cp-radio-content {
+        background: #2a2a2a;
+        border-color: #404040;
+    }
+    
+    .cp-radio-card:hover .cp-radio-content {
+        background: #333;
+    }
+    
+    .cp-results-container {
+        background: #2a2a2a;
+        border-top-color: #404040;
+    }
+    
+    .cp-results-content {
+        background: #1a1a1a;
+        border-color: #404040;
+    }
+    
+    .cp-result-table th {
+        background: #333;
+        color: #e0e0e0;
+    }
+    
+    .cp-result-table tr:hover {
+        background: #333;
+    }
+    
+    .cp-search-progress-container {
+        background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+    }
+    
+    .cp-source-progress {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.1);
+    }
+}
+
+/* Animaciones adicionales */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.cp-result-section {
+    animation: fadeInUp 0.5s ease forwards;
+}
+
+.cp-result-section:nth-child(2) {
+    animation-delay: 0.1s;
+}
+
+.cp-result-section:nth-child(3) {
+    animation-delay: 0.2s;
+}
+
+.cp-result-section:nth-child(4) {
+    animation-delay: 0.3s;
+}
+
+/* Efectos de hover mejorados */
+.cp-source-progress:hover .cp-source-title {
+    color: #fff;
+}
+
+.cp-btn:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.cp-btn:active {
+    transform: translateY(0);
+}
+
+/* Mejoras de usabilidad */
+.cp-form-group input:invalid:not(:focus) {
+    border-color: #dc3545;
+    background-color: #fff5f5;
+}
+
+.cp-form-group input:valid:not(:focus) {
+    border-color: #28a745;
+}
+
+/* Loading states */
+.cp-btn.loading {
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+.cp-btn.loading .cp-btn-text {
+    opacity: 0;
+}
+
+.cp-btn.loading .cp-btn-spinner {
+    display: inline-block;
+    position: absolute;
+}
+
+/* Scrollbar personalizado para tables */
+.table-responsive::-webkit-scrollbar {
+    height: 8px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
 }
