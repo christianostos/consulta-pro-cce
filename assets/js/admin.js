@@ -23,20 +23,33 @@ jQuery(document).ready(function($) {
     // ========================================
     
     function initLogsPage() {
+        console.log('CP: Inicializando página de logs...');
+        
+        // Verificar que estamos en la página correcta
+        if (window.location.href.indexOf('consulta-procesos-logs') === -1) {
+            console.log('CP: No estamos en la página de logs, saltando inicialización');
+            return;
+        }
+        
+        console.log('CP: Configurando eventos de la página de logs...');
+        
         // Probar stored procedure
         $('#test-stored-procedure').on('click', function(e) {
             e.preventDefault();
+            console.log('CP: Botón test stored procedure clickeado');
             testStoredProcedure();
         });
         
         // Ejecutar consulta de admin
         $('#execute-admin-query').on('click', function(e) {
             e.preventDefault();
+            console.log('CP: Botón execute admin query clickeado');
             executeAdminQuery();
         });
         
         // Limpiar consulta de admin
         $('#clear-admin-query').on('click', function() {
+            console.log('CP: Limpiando consulta admin');
             $('#admin-sql-query').val('').focus();
             $('#admin-query-results').html('');
         });
@@ -44,12 +57,14 @@ jQuery(document).ready(function($) {
         // Actualizar logs del sistema
         $('#refresh-logs').on('click', function(e) {
             e.preventDefault();
+            console.log('CP: Refrescando logs del sistema');
             refreshSystemLogs();
         });
         
         // Limpiar logs del sistema
         $('#clear-logs').on('click', function(e) {
             e.preventDefault();
+            console.log('CP: Limpiando logs del sistema');
             if (confirm('¿Estás seguro de que quieres limpiar todos los logs?')) {
                 clearSystemLogs();
             }
@@ -58,26 +73,45 @@ jQuery(document).ready(function($) {
         // Actualizar logs del frontend
         $('#refresh-frontend-logs').on('click', function(e) {
             e.preventDefault();
+            console.log('CP: Refrescando logs del frontend');
             refreshFrontendLogs();
         });
         
+        // Verificar que los elementos existen
+        console.log('CP: Elementos encontrados:', {
+            'test-stored-procedure': $('#test-stored-procedure').length,
+            'execute-admin-query': $('#execute-admin-query').length,
+            'refresh-logs': $('#refresh-logs').length,
+            'clear-logs': $('#clear-logs').length,
+            'refresh-frontend-logs': $('#refresh-frontend-logs').length
+        });
+        
         // Auto-cargar logs si estamos en la página de logs
-        if (window.location.href.indexOf('consulta-procesos-logs') !== -1) {
-            setTimeout(function() {
-                refreshSystemLogs();
-                refreshFrontendLogs();
-            }, 500);
-        }
+        setTimeout(function() {
+            console.log('CP: Auto-cargando logs...');
+            refreshSystemLogs();
+            refreshFrontendLogs();
+        }, 1000);
     }
     
     function testStoredProcedure() {
+        console.log('CP: Iniciando test de stored procedure...');
+        
         var spName = $('#sp-name').val();
         var param1 = $('#sp-param1').val();
         var param2 = $('#sp-param2').val();
         var param3 = $('#sp-param3').val();
         
+        console.log('CP: Parámetros del SP:', {
+            sp_name: spName,
+            param1: param1,
+            param2: param2,
+            param3: param3
+        });
+        
         if (!spName || !param1 || !param2 || !param3) {
             alert('Por favor, completa todos los campos');
+            console.log('CP: Faltan campos requeridos');
             return;
         }
         
@@ -85,7 +119,9 @@ jQuery(document).ready(function($) {
         var originalText = button.html();
         
         button.prop('disabled', true).html('<span class="spinner is-active"></span> Ejecutando...');
-        $('#sp-results').html('');
+        $('#sp-results').html('<div class="loading">Ejecutando stored procedure...</div>');
+        
+        console.log('CP: Enviando petición AJAX para test SP...');
         
         ajaxRequest('cp_test_stored_procedure', {
             sp_name: spName,
@@ -93,16 +129,21 @@ jQuery(document).ready(function($) {
             param2: param2,
             param3: param3
         }, function(response) {
+            console.log('CP: Respuesta del test SP:', response);
             button.prop('disabled', false).html(originalText);
             
             if (response.success) {
+                console.log('CP: Test SP exitoso');
                 displayStoredProcedureResults(response.data);
             } else {
-                $('#sp-results').html('<div class="error"><strong>Error:</strong> ' + response.data.message + '</div>');
+                console.log('CP: Test SP falló:', response.data);
+                var errorMsg = response.data ? response.data.message : 'Error desconocido';
+                $('#sp-results').html('<div class="error"><strong>Error:</strong> ' + errorMsg + '</div>');
             }
-        }, function() {
+        }, function(xhr, status, error) {
+            console.error('CP: Error de comunicación en test SP:', xhr, status, error);
             button.prop('disabled', false).html(originalText);
-            $('#sp-results').html('<div class="error">Error de comunicación con el servidor</div>');
+            $('#sp-results').html('<div class="error">Error de comunicación con el servidor: ' + error + '</div>');
         });
     }
     
@@ -221,12 +262,16 @@ jQuery(document).ready(function($) {
     }
     
     function refreshSystemLogs() {
+        console.log('CP: Refrescando logs del sistema...');
+        
         var button = $('#refresh-logs');
         var originalText = button.html();
         
         button.prop('disabled', true).html('<span class="spinner is-active"></span> Cargando...');
+        $('#system-logs').html('<div class="loading">Cargando logs...</div>');
         
         ajaxRequest('cp_get_system_logs', {}, function(response) {
+            console.log('CP: Respuesta de logs del sistema:', response);
             button.prop('disabled', false).html(originalText);
             
             if (response.success) {
@@ -236,12 +281,15 @@ jQuery(document).ready(function($) {
                 if (response.data.file_size) {
                     $('.logs-info').text('Archivo: debug.log (' + formatBytes(response.data.file_size) + ')');
                 }
+                console.log('CP: Logs cargados correctamente');
             } else {
-                $('#system-logs').text('Error al cargar logs');
+                $('#system-logs').text('Error al cargar logs: ' + (response.data ? response.data.message : 'Error desconocido'));
+                console.log('CP: Error cargando logs:', response.data);
             }
-        }, function() {
+        }, function(xhr, status, error) {
+            console.error('CP: Error de comunicación al cargar logs:', xhr, status, error);
             button.prop('disabled', false).html(originalText);
-            $('#system-logs').text('Error de comunicación');
+            $('#system-logs').text('Error de comunicación: ' + error);
         });
     }
     
@@ -1085,18 +1133,35 @@ jQuery(document).ready(function($) {
         data.action = action;
         data.nonce = cp_ajax.nonce;
         
+        console.log('CP: Enviando petición AJAX:', action, data);
+        
+        // Verificar que tenemos nonce
+        if (!cp_ajax.nonce) {
+            console.error('CP: No hay nonce disponible!');
+            if (typeof errorCallback === 'function') {
+                errorCallback();
+            }
+            return;
+        }
+        
         $.ajax({
             url: cp_ajax.url,
             type: 'POST',
             data: data,
             success: function(response) {
+                console.log('CP: Respuesta AJAX recibida:', action, response);
                 if (typeof successCallback === 'function') {
                     successCallback(response);
                 }
             },
-            error: function() {
+            error: function(xhr, status, error) {
+                console.error('CP: Error en petición AJAX:', action, {
+                    status: status,
+                    error: error,
+                    responseText: xhr.responseText
+                });
                 if (typeof errorCallback === 'function') {
-                    errorCallback();
+                    errorCallback(xhr, status, error);
                 }
             }
         });
@@ -1143,7 +1208,34 @@ jQuery(document).ready(function($) {
     }
     
     // Mensaje de bienvenida en consola
-    console.log('Consulta Procesos v' + (cp_ajax.version || '1.2.0') + ' cargado correctamente');
+    console.log('CP: Consulta Procesos v' + (cp_ajax.version || '1.2.0') + ' cargado correctamente');
+    console.log('CP: Variables disponibles:', {
+        cp_ajax: typeof cp_ajax !== 'undefined' ? cp_ajax : 'NO DISPONIBLE',
+        jquery: typeof $ !== 'undefined' ? 'DISPONIBLE' : 'NO DISPONIBLE',
+        url_actual: window.location.href
+    });
+    
+    // Verificar que cp_ajax esté disponible
+    if (typeof cp_ajax === 'undefined') {
+        console.error('CP: ¡CRÍTICO! cp_ajax no está definido. Los botones AJAX no funcionarán.');
+        alert('Error: Scripts de administración no cargados correctamente. Por favor, recarga la página.');
+        return;
+    }
+    
+    console.log('CP: Nonce disponible:', cp_ajax.nonce ? 'SÍ' : 'NO');
+    console.log('CP: URL AJAX:', cp_ajax.url);
+    
+    // Debug: mostrar elementos de la página de logs si estamos ahí
+    if (window.location.href.indexOf('consulta-procesos-logs') !== -1) {
+        setTimeout(function() {
+            console.log('CP: Elementos de logs encontrados:', {
+                'test-stored-procedure': $('#test-stored-procedure').length,
+                'execute-admin-query': $('#execute-admin-query').length,
+                'refresh-logs': $('#refresh-logs').length,
+                'system-logs': $('#system-logs').length
+            });
+        }, 100);
+    }
     
     // Debug: mostrar variables globales en consola
     if (typeof cp_ajax.debug !== 'undefined' && cp_ajax.debug) {

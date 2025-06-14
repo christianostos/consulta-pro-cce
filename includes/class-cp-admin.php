@@ -40,7 +40,7 @@ class CP_Admin {
         add_action('admin_init', array($this, 'admin_init'));
         add_action('admin_enqueue_scripts', array($this, 'admin_scripts'));
         
-        // Hooks AJAX
+        // Hooks AJAX existentes
         add_action('wp_ajax_cp_test_connection', array($this, 'ajax_test_connection'));
         add_action('wp_ajax_cp_get_tables', array($this, 'ajax_get_tables'));
         add_action('wp_ajax_cp_diagnose_system', array($this, 'ajax_diagnose_system'));
@@ -51,6 +51,11 @@ class CP_Admin {
         add_action('wp_ajax_cp_get_system_logs', array($this, 'ajax_get_system_logs'));
         add_action('wp_ajax_cp_clear_system_logs', array($this, 'ajax_clear_system_logs'));
         add_action('wp_ajax_cp_get_frontend_logs', array($this, 'ajax_get_frontend_logs'));
+        
+        // Debug: Verificar que los hooks se registren
+        add_action('wp_loaded', function() {
+            error_log('CP Admin: Hooks AJAX registrados correctamente');
+        });
     }
     
     /**
