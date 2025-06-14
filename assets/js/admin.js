@@ -23,33 +23,33 @@ jQuery(document).ready(function($) {
     // ========================================
     
     function initLogsPage() {
-        console.log('CP: Inicializando página de logs...');
+        //console.log('CP: Inicializando página de logs...');
         
         // Verificar que estamos en la página correcta
         if (window.location.href.indexOf('consulta-procesos-logs') === -1) {
-            console.log('CP: No estamos en la página de logs, saltando inicialización');
+            //console.log('CP: No estamos en la página de logs, saltando inicialización');
             return;
         }
         
-        console.log('CP: Configurando eventos de la página de logs...');
+        //console.log('CP: Configurando eventos de la página de logs...');
         
         // Probar stored procedure
         $('#test-stored-procedure').on('click', function(e) {
             e.preventDefault();
-            console.log('CP: Botón test stored procedure clickeado');
+            //console.log('CP: Botón test stored procedure clickeado');
             testStoredProcedure();
         });
         
         // Ejecutar consulta de admin
         $('#execute-admin-query').on('click', function(e) {
             e.preventDefault();
-            console.log('CP: Botón execute admin query clickeado');
+            //console.log('CP: Botón execute admin query clickeado');
             executeAdminQuery();
         });
         
         // Limpiar consulta de admin
         $('#clear-admin-query').on('click', function() {
-            console.log('CP: Limpiando consulta admin');
+            //console.log('CP: Limpiando consulta admin');
             $('#admin-sql-query').val('').focus();
             $('#admin-query-results').html('');
         });
@@ -57,14 +57,14 @@ jQuery(document).ready(function($) {
         // Actualizar logs del sistema
         $('#refresh-logs').on('click', function(e) {
             e.preventDefault();
-            console.log('CP: Refrescando logs del sistema');
+            //console.log('CP: Refrescando logs del sistema');
             refreshSystemLogs();
         });
         
         // Limpiar logs del sistema
         $('#clear-logs').on('click', function(e) {
             e.preventDefault();
-            console.log('CP: Limpiando logs del sistema');
+            //console.log('CP: Limpiando logs del sistema');
             if (confirm('¿Estás seguro de que quieres limpiar todos los logs?')) {
                 clearSystemLogs();
             }
@@ -73,22 +73,22 @@ jQuery(document).ready(function($) {
         // Actualizar logs del frontend
         $('#refresh-frontend-logs').on('click', function(e) {
             e.preventDefault();
-            console.log('CP: Refrescando logs del frontend');
+            //console.log('CP: Refrescando logs del frontend');
             refreshFrontendLogs();
         });
         
         // Verificar que los elementos existen
-        console.log('CP: Elementos encontrados:', {
-            'test-stored-procedure': $('#test-stored-procedure').length,
-            'execute-admin-query': $('#execute-admin-query').length,
-            'refresh-logs': $('#refresh-logs').length,
-            'clear-logs': $('#clear-logs').length,
-            'refresh-frontend-logs': $('#refresh-frontend-logs').length
-        });
+        //console.log('CP: Elementos encontrados:', {
+            //'test-stored-procedure': $('#test-stored-procedure').length,
+            //'execute-admin-query': $('#execute-admin-query').length,
+            //'refresh-logs': $('#refresh-logs').length,
+            //'clear-logs': $('#clear-logs').length,
+            //'refresh-frontend-logs': $('#refresh-frontend-logs').length
+        //});
         
         // Auto-cargar logs si estamos en la página de logs
         setTimeout(function() {
-            console.log('CP: Auto-cargando logs...');
+            //console.log('CP: Auto-cargando logs...');
             refreshSystemLogs();
             refreshFrontendLogs();
         }, 1000);
@@ -121,7 +121,7 @@ jQuery(document).ready(function($) {
         button.prop('disabled', true).html('<span class="spinner is-active"></span> Ejecutando...');
         $('#sp-results').html('<div class="loading">Ejecutando stored procedure...</div>');
         
-        console.log('CP: Enviando petición AJAX para test SP...');
+        //console.log('CP: Enviando petición AJAX para test SP...');
         
         ajaxRequest('cp_test_stored_procedure', {
             sp_name: spName,
@@ -262,7 +262,7 @@ jQuery(document).ready(function($) {
     }
     
     function refreshSystemLogs() {
-        console.log('CP: Refrescando logs del sistema...');
+        //console.log('CP: Refrescando logs del sistema...');
         
         var button = $('#refresh-logs');
         var originalText = button.html();
@@ -271,7 +271,7 @@ jQuery(document).ready(function($) {
         $('#system-logs').html('<div class="loading">Cargando logs...</div>');
         
         ajaxRequest('cp_get_system_logs', {}, function(response) {
-            console.log('CP: Respuesta de logs del sistema:', response);
+            //console.log('CP: Respuesta de logs del sistema:', response);
             button.prop('disabled', false).html(originalText);
             
             if (response.success) {
@@ -1133,7 +1133,7 @@ jQuery(document).ready(function($) {
         data.action = action;
         data.nonce = cp_ajax.nonce;
         
-        console.log('CP: Enviando petición AJAX:', action, data);
+        //console.log('CP: Enviando petición AJAX:', action, data);
         
         // Verificar que tenemos nonce
         if (!cp_ajax.nonce) {
@@ -1149,7 +1149,7 @@ jQuery(document).ready(function($) {
             type: 'POST',
             data: data,
             success: function(response) {
-                console.log('CP: Respuesta AJAX recibida:', action, response);
+                //console.log('CP: Respuesta AJAX recibida:', action, response);
                 if (typeof successCallback === 'function') {
                     successCallback(response);
                 }
@@ -1222,8 +1222,8 @@ jQuery(document).ready(function($) {
         return;
     }
     
-    console.log('CP: Nonce disponible:', cp_ajax.nonce ? 'SÍ' : 'NO');
-    console.log('CP: URL AJAX:', cp_ajax.url);
+    //console.log('CP: Nonce disponible:', cp_ajax.nonce ? 'SÍ' : 'NO');
+    //console.log('CP: URL AJAX:', cp_ajax.url);
     
     // Debug: mostrar elementos de la página de logs si estamos ahí
     if (window.location.href.indexOf('consulta-procesos-logs') !== -1) {

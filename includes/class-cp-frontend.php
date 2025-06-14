@@ -579,13 +579,9 @@ class CP_Frontend {
      */
     private function execute_stored_procedure($connection, $method, $procedure_name, $params, $source_name) {
         try {
-            error_log("CP Frontend: Ejecutando SP {$procedure_name} con parámetros: " . json_encode($params));
-            
             if (strpos($method, 'PDO') !== false) {
-                // Para PDO - Sintaxis corregida
-                $sql = "EXEC {$procedure_name} ?, ?, ?";
-                
-                error_log("CP Frontend: SQL PDO: {$sql}");
+                // Para PDO - Agregar SET NOCOUNT ON y manejar múltiples resultsets
+                $sql = "SET NOCOUNT ON; EXEC {$procedure_name} ?, ?, ?";
                 
                 $stmt = $connection->prepare($sql);
                 $success = $stmt->execute($params);
@@ -595,16 +591,24 @@ class CP_Frontend {
                     throw new Exception("Error PDO: " . $errorInfo[2]);
                 }
                 
-                $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $results = array();
                 
-                error_log("CP Frontend: {$source_name} - " . count($results) . " registros encontrados via PDO SP");
+                // Buscar en todos los conjuntos de resultados
+                do {
+                    if ($stmt->columnCount() > 0) {
+                        $resultSet = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        if (!empty($resultSet)) {
+                            $results = $resultSet;
+                            break; // Usar el primer conjunto no vacío
+                        }
+                    }
+                } while ($stmt->nextRowset());
+                
                 return $results;
                 
             } else {
-                // Para SQLSRV - Sintaxis corregida
-                $sql = "EXEC {$procedure_name} ?, ?, ?";
-                
-                error_log("CP Frontend: SQL SQLSRV: {$sql}");
+                // Para SQLSRV - Agregar SET NOCOUNT ON y manejar múltiples resultsets
+                $sql = "SET NOCOUNT ON; EXEC {$procedure_name} ?, ?, ?";
                 
                 $stmt = sqlsrv_prepare($connection, $sql, $params);
                 
@@ -629,23 +633,29 @@ class CP_Frontend {
                 }
                 
                 $results = array();
-                while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
-                    // Convertir objetos DateTime a strings
-                    foreach ($row as $key => $value) {
-                        if ($value instanceof DateTime) {
-                            $row[$key] = $value->format('Y-m-d H:i:s');
+                
+                // Buscar en todos los conjuntos de resultados
+                do {
+                    while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                        // Convertir objetos DateTime a strings
+                        foreach ($row as $key => $value) {
+                            if ($value instanceof DateTime) {
+                                $row[$key] = $value->format('Y-m-d H:i:s');
+                            }
                         }
+                        $results[] = $row;
                     }
-                    $results[] = $row;
-                }
+                    
+                    if (!empty($results)) {
+                        break; // Usar el primer conjunto no vacío
+                    }
+                    
+                } while (sqlsrv_next_result($stmt));
                 
                 sqlsrv_free_stmt($stmt);
-                
-                error_log("CP Frontend: {$source_name} - " . count($results) . " registros encontrados via SQLSRV SP");
                 return $results;
             }
         } catch (Exception $e) {
-            error_log("CP Frontend: Error en SP {$procedure_name} - " . $e->getMessage());
             return array();
         }
     }

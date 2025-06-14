@@ -406,7 +406,7 @@ class CP_Admin {
             $start_time = microtime(true);
             
             if (strpos($method, 'PDO') !== false) {
-                $sql = "EXEC {$sp_name} ?, ?, ?";
+                $sql = "SET NOCOUNT ON; EXEC {$sp_name} ?, ?, ?";
                 $stmt = $connection->prepare($sql);
                 $success = $stmt->execute(array($param1, $param2, $param3));
                 
@@ -415,9 +415,21 @@ class CP_Admin {
                     throw new Exception("Error PDO: " . $errorInfo[2]);
                 }
                 
-                $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $results = array();
+                
+                // Buscar en todos los conjuntos de resultados
+                do {
+                    if ($stmt->columnCount() > 0) {
+                        $resultSet = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        if (!empty($resultSet)) {
+                            $results = $resultSet;
+                            break; // Usar el primer conjunto no vacío
+                        }
+                    }
+                } while ($stmt->nextRowset());
+                
             } else {
-                $sql = "EXEC {$sp_name} ?, ?, ?";
+                $sql = "SET NOCOUNT ON; EXEC {$sp_name} ?, ?, ?";
                 $stmt = sqlsrv_prepare($connection, $sql, array($param1, $param2, $param3));
                 
                 if ($stmt === false) {
@@ -440,20 +452,28 @@ class CP_Admin {
                 }
                 
                 $results = array();
-                while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
-                    foreach ($row as $key => $value) {
-                        if ($value instanceof DateTime) {
-                            $row[$key] = $value->format('Y-m-d H:i:s');
+                
+                // Buscar en todos los conjuntos de resultados
+                do {
+                    while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                        foreach ($row as $key => $value) {
+                            if ($value instanceof DateTime) {
+                                $row[$key] = $value->format('Y-m-d H:i:s');
+                            }
                         }
+                        $results[] = $row;
                     }
-                    $results[] = $row;
-                }
+                    
+                    if (!empty($results)) {
+                        break; // Usar el primer conjunto no vacío
+                    }
+                    
+                } while (sqlsrv_next_result($stmt));
+                
                 sqlsrv_free_stmt($stmt);
             }
             
             $execution_time = microtime(true) - $start_time;
-            
-            error_log("CP Admin: SP {$sp_name} ejecutado exitosamente - " . count($results) . " resultados en " . round($execution_time, 4) . "s");
             
             wp_send_json_success(array(
                 'results' => $results,
@@ -464,7 +484,6 @@ class CP_Admin {
             ));
             
         } catch (Exception $e) {
-            error_log("CP Admin: Error en SP {$sp_name} - " . $e->getMessage());
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }

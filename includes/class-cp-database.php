@@ -125,10 +125,13 @@ class CP_Database {
             $options = array(
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::SQLSRV_ATTR_ENCODING => PDO::SQLSRV_ENCODING_UTF8,
-                PDO::SQLSRV_ATTR_QUERY_TIMEOUT => 30
+                PDO::SQLSRV_ATTR_QUERY_TIMEOUT => 180
             );
             
             $conn = new PDO($dsn, $config['username'], $config['password'], $options);
+
+            // Configurar timeouts adicionales después de la conexión
+            $conn->setAttribute(PDO::SQLSRV_ATTR_QUERY_TIMEOUT, 180);
             
             // Probar la conexión
             $stmt = $conn->query("SELECT 1 as test");

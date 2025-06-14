@@ -14,7 +14,7 @@ class CP_Query_Executor {
     private static $instance = null;
     private $db;
     private $security;
-    private $max_execution_time = 30;
+    private $max_execution_time = 360;
     private $max_rows = 1000;
     
     /**
