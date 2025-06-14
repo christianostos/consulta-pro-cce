@@ -841,10 +841,10 @@ jQuery(document).ready(function($) {
         }
         
         // Validar que sea una consulta SELECT
-        if (!query.toLowerCase().match(/^\s*select\s+/i)) {
-            alert('Por seguridad, solo se permiten consultas SELECT');
-            return;
-        }
+        //if (!query.toLowerCase().match(/^\s*select\s+/i)) {
+            //alert('Por seguridad, solo se permiten consultas SELECT');
+            //return;
+        //}
         
         var button = $('#execute-query');
         var originalHtml = button.html();
