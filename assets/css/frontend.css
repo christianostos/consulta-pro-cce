@@ -6,7 +6,7 @@
 
 /* Contenedor principal */
 .cp-frontend-container {
-    max-width: 800px;
+    max-width: 1100px;
     margin: 0 auto;
     background: #fff;
     border-radius: 8px;
@@ -17,7 +17,7 @@
 
 .cp-frontend-title {
     text-align: center;
-    color: #1d2327;
+    color: #233A79;
     margin: 0 0 30px 0;
     padding: 30px 30px 0 30px;
     font-size: 28px;
@@ -73,7 +73,7 @@
 }
 
 .cp-progress-step.active .cp-step-number {
-    background: #007cba;
+    background: #233A79;
     color: white;
 }
 
@@ -224,7 +224,7 @@
 .cp-radio-content {
     border: 2px solid #e9ecef;
     border-radius: 8px;
-    padding: 30px 20px 30px 20px;
+    padding: 30px 20px 20px 20px;
     text-align: center;
     transition: all 0.3s ease;
     height: 100%;
@@ -613,7 +613,7 @@
 }
 
 .cp-btn-primary {
-    background: #007cba;
+    background: #233A79;
     color: white;
 }
 
