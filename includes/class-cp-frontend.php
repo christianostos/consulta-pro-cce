@@ -225,7 +225,7 @@ class CP_Frontend {
                         <input type="radio" name="profile_type" value="entidades">
                         <div class="cp-radio-content">
                             <div class="cp-radio-icon">
-                                <span class="dashicons dashicons-building"></span>
+                                <span class="dashicons dashicons-building cp-icon-perfil"></span>
                             </div>
                             <h4><?php _e('Entidades', 'consulta-procesos'); ?></h4>
                             <p><?php _e('Consultas para entidades públicas y organizaciones', 'consulta-procesos'); ?></p>
@@ -238,7 +238,7 @@ class CP_Frontend {
                         <input type="radio" name="profile_type" value="proveedores">
                         <div class="cp-radio-content">
                             <div class="cp-radio-icon">
-                                <span class="dashicons dashicons-businessman"></span>
+                                <span class="dashicons dashicons-businessman cp-icon-perfil"></span>
                             </div>
                             <h4><?php _e('Proveedores', 'consulta-procesos'); ?></h4>
                             <p><?php _e('Consultas para proveedores y contratistas', 'consulta-procesos'); ?></p>
