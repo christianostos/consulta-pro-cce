@@ -5,6 +5,12 @@ jQuery(document).ready(function($) {
     var queryResults = null;
     var savedQueries = [];
     
+    // NUEVO: Variables para logs del frontend
+    var currentPage = 1;
+    var pageSize = 50;
+    var currentFilters = {};
+    var frontendLogsData = [];
+    
     // Inicialización
     init();
     
@@ -19,7 +25,7 @@ jQuery(document).ready(function($) {
     }
     
     // ========================================
-    // NUEVA PÁGINA DE LOGS
+    // NUEVA PÁGINA DE LOGS - MEJORADA
     // ========================================
     
     function initLogsPage() {
@@ -65,15 +71,67 @@ jQuery(document).ready(function($) {
         $('#clear-logs').on('click', function(e) {
             e.preventDefault();
             //console.log('CP: Limpiando logs del sistema');
-            if (confirm('¿Estás seguro de que quieres limpiar todos los logs?')) {
+            if (confirm('¿Estás seguro de que quieres limpiar todos los logs del sistema?')) {
                 clearSystemLogs();
             }
         });
         
-        // Actualizar logs del frontend
+        // NUEVO: Eventos para logs del frontend
         $('#refresh-frontend-logs').on('click', function(e) {
             e.preventDefault();
-            //console.log('CP: Refrescando logs del frontend');
+            console.log('CP: Refrescando logs del frontend');
+            refreshFrontendLogs();
+        });
+        
+        // NUEVO: Limpiar logs del frontend
+        $('#clear-frontend-logs').on('click', function(e) {
+            e.preventDefault();
+            console.log('CP: Solicitando limpiar logs del frontend');
+            if (confirm('¿Estás seguro de que quieres limpiar todos los logs de búsquedas del frontend? Esta acción no se puede deshacer.')) {
+                clearFrontendLogs();
+            }
+        });
+        
+        // NUEVO: Actualizar estadísticas del frontend
+        $('#refresh-frontend-stats').on('click', function(e) {
+            e.preventDefault();
+            console.log('CP: Refrescando estadísticas del frontend');
+            refreshFrontendStats();
+        });
+        
+        // NUEVO: Filtros de logs
+        $('#apply-filters').on('click', function() {
+            console.log('CP: Aplicando filtros');
+            applyLogsFilters();
+        });
+        
+        $('#clear-filters').on('click', function() {
+            console.log('CP: Limpiando filtros');
+            clearLogsFilters();
+        });
+        
+        // NUEVO: Paginación
+        $('#prev-page').on('click', function() {
+            if (currentPage > 1) {
+                currentPage--;
+                refreshFrontendLogs();
+            }
+        });
+        
+        $('#next-page').on('click', function() {
+            currentPage++;
+            refreshFrontendLogs();
+        });
+        
+        $('#page-size').on('change', function() {
+            pageSize = parseInt($(this).val());
+            currentPage = 1;
+            refreshFrontendLogs();
+        });
+        
+        // NUEVO: Filtros en tiempo real
+        $('#filter-status, #filter-profile, #filter-date').on('change', function() {
+            currentPage = 1;
             refreshFrontendLogs();
         });
         
@@ -83,14 +141,16 @@ jQuery(document).ready(function($) {
             //'execute-admin-query': $('#execute-admin-query').length,
             //'refresh-logs': $('#refresh-logs').length,
             //'clear-logs': $('#clear-logs').length,
-            //'refresh-frontend-logs': $('#refresh-frontend-logs').length
+            //'refresh-frontend-logs': $('#refresh-frontend-logs').length,
+            //'clear-frontend-logs': $('#clear-frontend-logs').length
         //});
         
-        // Auto-cargar logs si estamos en la página de logs
+        // Auto-cargar datos si estamos en la página de logs
         setTimeout(function() {
-            //console.log('CP: Auto-cargando logs...');
+            //console.log('CP: Auto-cargando datos de logs...');
             refreshSystemLogs();
             refreshFrontendLogs();
+            refreshFrontendStats();
         }, 1000);
     }
     
@@ -281,13 +341,13 @@ jQuery(document).ready(function($) {
                 if (response.data.file_size) {
                     $('.logs-info').text('Archivo: debug.log (' + formatBytes(response.data.file_size) + ')');
                 }
-                console.log('CP: Logs cargados correctamente');
+                console.log('CP: Logs del sistema cargados correctamente');
             } else {
                 $('#system-logs').text('Error al cargar logs: ' + (response.data ? response.data.message : 'Error desconocido'));
-                console.log('CP: Error cargando logs:', response.data);
+                console.log('CP: Error cargando logs del sistema:', response.data);
             }
         }, function(xhr, status, error) {
-            console.error('CP: Error de comunicación al cargar logs:', xhr, status, error);
+            console.error('CP: Error de comunicación al cargar logs del sistema:', xhr, status, error);
             button.prop('disabled', false).html(originalText);
             $('#system-logs').text('Error de comunicación: ' + error);
         });
@@ -304,9 +364,9 @@ jQuery(document).ready(function($) {
             
             if (response.success) {
                 $('#system-logs').text('Logs limpiados exitosamente');
-                alert('Logs limpiados exitosamente');
+                alert('Logs del sistema limpiados exitosamente');
             } else {
-                alert('Error al limpiar logs: ' + response.data.message);
+                alert('Error al limpiar logs del sistema: ' + response.data.message);
             }
         }, function() {
             button.prop('disabled', false).html(originalText);
@@ -314,61 +374,242 @@ jQuery(document).ready(function($) {
         });
     }
     
+    // NUEVO: Refrescar logs del frontend
     function refreshFrontendLogs() {
+        console.log('CP: Refrescando logs del frontend...');
+        
         var button = $('#refresh-frontend-logs');
         var originalText = button.html();
         
         button.prop('disabled', true).html('<span class="spinner is-active"></span> Cargando...');
+        $('#frontend-logs').html('<div class="loading-logs"><span class="spinner is-active"></span> Cargando logs del frontend...</div>');
         
-        ajaxRequest('cp_get_frontend_logs', {}, function(response) {
+        // Obtener filtros actuales
+        var filters = {
+            status: $('#filter-status').val(),
+            profile: $('#filter-profile').val(),
+            date: $('#filter-date').val(),
+            page: currentPage,
+            page_size: pageSize
+        };
+        
+        ajaxRequest('cp_get_frontend_logs', filters, function(response) {
+            console.log('CP: Respuesta de logs del frontend:', response);
             button.prop('disabled', false).html(originalText);
             
             if (response.success) {
+                frontendLogsData = response.data.logs || [];
                 displayFrontendLogs(response.data);
+                updatePagination(response.data);
             } else {
-                $('#frontend-logs').html('<div class="error">Error al cargar logs del frontend</div>');
+                $('#frontend-logs').html('<div class="no-logs-message"><span class="dashicons dashicons-warning"></span><br>Error al cargar logs del frontend</div>');
+                console.error('CP: Error cargando logs del frontend:', response.data);
             }
-        }, function() {
+        }, function(xhr, status, error) {
+            console.error('CP: Error de comunicación al cargar logs del frontend:', xhr, status, error);
             button.prop('disabled', false).html(originalText);
-            $('#frontend-logs').html('<div class="error">Error de comunicación</div>');
+            $('#frontend-logs').html('<div class="no-logs-message"><span class="dashicons dashicons-warning"></span><br>Error de comunicación</div>');
         });
     }
     
+    // NUEVO: Mostrar logs del frontend
     function displayFrontendLogs(data) {
         var html = '';
         
         if (data.logs && data.logs.length > 0) {
             html += '<table class="frontend-logs-table">';
             html += '<thead><tr>';
-            html += '<th>Fecha</th>';
-            html += '<th>Perfil</th>';
-            html += '<th>Documento</th>';
-            html += '<th>Fechas</th>';
-            html += '<th>Fuentes</th>';
-            html += '<th>Resultados</th>';
-            html += '<th>IP</th>';
+            html += '<th style="width: 130px;">Fecha/Hora</th>';
+            html += '<th style="width: 80px;">Estado</th>';
+            html += '<th style="width: 90px;">Perfil</th>';
+            html += '<th style="width: 120px;">Documento</th>';
+            html += '<th style="width: 200px;">Rango de Fechas</th>';
+            html += '<th style="width: 150px;">Fuentes</th>';
+            html += '<th style="width: 80px;">Resultados</th>';
+            html += '<th style="width: 80px;">Tiempo</th>';
+            html += '<th style="width: 100px;">IP</th>';
+            html += '<th>Error</th>';
             html += '</tr></thead>';
             html += '<tbody>';
             
             data.logs.forEach(function(log) {
                 html += '<tr>';
-                html += '<td>' + log.created_at + '</td>';
-                html += '<td>' + log.profile_type + '</td>';
-                html += '<td>' + log.numero_documento + '</td>';
-                html += '<td>' + log.fecha_inicio + ' - ' + log.fecha_fin + '</td>';
-                html += '<td>' + log.search_sources + '</td>';
-                html += '<td>' + log.results_found + '</td>';
-                html += '<td>' + log.ip_address + '</td>';
+                
+                // Fecha
+                var fecha = new Date(log.created_at);
+                html += '<td>' + fecha.toLocaleString('es-ES') + '</td>';
+                
+                // Estado con badge
+                var statusClass = 'status-' + log.status;
+                var statusText = getStatusText(log.status);
+                html += '<td><span class="status-badge ' + log.status + '">' + statusText + '</span></td>';
+                
+                // Perfil
+                html += '<td>' + capitalizeFirst(log.profile_type) + '</td>';
+                
+                // Documento
+                html += '<td class="truncated-cell" title="' + escapeHtml(log.numero_documento) + '">' + escapeHtml(log.numero_documento) + '</td>';
+                
+                // Fechas
+                html += '<td>' + log.fecha_inicio + ' a ' + log.fecha_fin + '</td>';
+                
+                // Fuentes
+                html += '<td class="truncated-cell" title="' + escapeHtml(log.search_sources) + '">' + escapeHtml(log.search_sources || '-') + '</td>';
+                
+                // Resultados
+                html += '<td style="text-align: right;">' + (log.results_found || 0) + '</td>';
+                
+                // Tiempo de ejecución
+                var execTime = log.execution_time ? log.execution_time + 's' : '-';
+                html += '<td style="text-align: right;">' + execTime + '</td>';
+                
+                // IP
+                html += '<td class="truncated-cell" title="' + escapeHtml(log.ip_address) + '">' + escapeHtml(log.ip_address) + '</td>';
+                
+                // Error (si hay)
+                var errorMsg = log.error_message ? log.error_message : '-';
+                html += '<td class="truncated-cell" title="' + escapeHtml(errorMsg) + '">' + (log.error_message ? '<span class="log-error">' + escapeHtml(errorMsg.substring(0, 50)) + (errorMsg.length > 50 ? '...' : '') + '</span>' : '-') + '</td>';
+                
                 html += '</tr>';
             });
             
             html += '</tbody></table>';
         } else {
-            html = '<div style="color: white; padding: 20px;">No hay logs de búsquedas aún</div>';
+            html = '<div class="no-logs-message">';
+            html += '<span class="dashicons dashicons-search"></span><br>';
+            html += 'No hay logs de búsquedas aún';
+            html += '</div>';
         }
         
         $('#frontend-logs').html(html);
-        $('#frontend-logs-count').text('Total: ' + (data.total || 0) + ' búsquedas');
+        $('#frontend-logs-count').text('Total: ' + (data.stats ? data.stats.total : 0) + ' búsquedas');
+    }
+    
+    // NUEVO: Actualizar paginación
+    function updatePagination(data) {
+        if (!data.logs || data.logs.length === 0) {
+            $('#logs-pagination').hide();
+            return;
+        }
+        
+        $('#logs-pagination').show();
+        
+        var totalPages = Math.ceil((data.stats ? data.stats.total : 0) / pageSize);
+        
+        $('#prev-page').prop('disabled', currentPage <= 1);
+        $('#next-page').prop('disabled', currentPage >= totalPages);
+        
+        $('#pagination-info').text('Página ' + currentPage + ' de ' + totalPages);
+    }
+    
+    // NUEVO: Limpiar logs del frontend
+    function clearFrontendLogs() {
+        console.log('CP: Iniciando limpieza de logs del frontend...');
+        
+        var button = $('#clear-frontend-logs');
+        var originalText = button.html();
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Limpiando...');
+        
+        ajaxRequest('cp_clear_frontend_logs', {}, function(response) {
+            console.log('CP: Respuesta de limpieza de logs del frontend:', response);
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success) {
+                alert('Logs del frontend limpiados exitosamente (' + (response.data.deleted_rows || 0) + ' registros eliminados)');
+                refreshFrontendLogs();
+                refreshFrontendStats();
+            } else {
+                alert('Error al limpiar logs del frontend: ' + (response.data ? response.data.message : 'Error desconocido'));
+            }
+        }, function(xhr, status, error) {
+            console.error('CP: Error de comunicación al limpiar logs del frontend:', xhr, status, error);
+            button.prop('disabled', false).html(originalText);
+            alert('Error de comunicación al limpiar logs');
+        });
+    }
+    
+    // NUEVO: Refrescar estadísticas del frontend
+    function refreshFrontendStats() {
+        console.log('CP: Refrescando estadísticas del frontend...');
+        
+        var button = $('#refresh-frontend-stats');
+        var originalText = button.html();
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Cargando...');
+        
+        ajaxRequest('cp_get_frontend_logs', {stats_only: true}, function(response) {
+            console.log('CP: Respuesta de estadísticas del frontend:', response);
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success && response.data.stats) {
+                updateFrontendStats(response.data.stats);
+            } else {
+                console.error('CP: Error obteniendo estadísticas del frontend');
+            }
+        }, function(xhr, status, error) {
+            console.error('CP: Error de comunicación al obtener estadísticas del frontend:', xhr, status, error);
+            button.prop('disabled', false).html(originalText);
+        });
+    }
+    
+    // NUEVO: Actualizar estadísticas en el UI
+    function updateFrontendStats(stats) {
+        $('#total-searches-stat').text(stats.total || 0);
+        $('#successful-searches-stat').text(stats.successful || 0);
+        $('#failed-searches-stat').text(stats.failed || 0);
+        
+        // Calcular tasa de éxito
+        var successRate = stats.total > 0 ? Math.round((stats.successful / stats.total) * 100) : 0;
+        $('#success-rate-stat').text(successRate + '%');
+        
+        $('#entidades-searches-stat').text(stats.entidades || 0);
+        $('#proveedores-searches-stat').text(stats.proveedores || 0);
+        
+        console.log('CP: Estadísticas del frontend actualizadas:', stats);
+    }
+    
+    // NUEVO: Aplicar filtros
+    function applyLogsFilters() {
+        currentFilters = {
+            status: $('#filter-status').val(),
+            profile: $('#filter-profile').val(),
+            date: $('#filter-date').val()
+        };
+        
+        currentPage = 1;
+        refreshFrontendLogs();
+        
+        console.log('CP: Filtros aplicados:', currentFilters);
+    }
+    
+    // NUEVO: Limpiar filtros
+    function clearLogsFilters() {
+        $('#filter-status').val('');
+        $('#filter-profile').val('');
+        $('#filter-date').val('');
+        
+        currentFilters = {};
+        currentPage = 1;
+        refreshFrontendLogs();
+        
+        console.log('CP: Filtros limpiados');
+    }
+    
+    // NUEVO: Obtener texto de estado
+    function getStatusText(status) {
+        var statusTexts = {
+            'success': 'Exitosa',
+            'error': 'Error',
+            'partial_success': 'Parcial'
+        };
+        return statusTexts[status] || status;
+    }
+    
+    // NUEVO: Capitalizar primera letra
+    function capitalizeFirst(str) {
+        if (!str) return '';
+        return str.charAt(0).toUpperCase() + str.slice(1);
     }
     
     // ========================================
@@ -1232,7 +1473,10 @@ jQuery(document).ready(function($) {
                 'test-stored-procedure': $('#test-stored-procedure').length,
                 'execute-admin-query': $('#execute-admin-query').length,
                 'refresh-logs': $('#refresh-logs').length,
-                'system-logs': $('#system-logs').length
+                'system-logs': $('#system-logs').length,
+                'refresh-frontend-logs': $('#refresh-frontend-logs').length,
+                'clear-frontend-logs': $('#clear-frontend-logs').length,
+                'refresh-frontend-stats': $('#refresh-frontend-stats').length
             });
         }, 100);
     }
@@ -1242,7 +1486,11 @@ jQuery(document).ready(function($) {
         console.log('Variables globales:', {
             currentTables: currentTables,
             queryResults: queryResults,
-            savedQueries: savedQueries
+            savedQueries: savedQueries,
+            frontendLogsData: frontendLogsData,
+            currentPage: currentPage,
+            pageSize: pageSize,
+            currentFilters: currentFilters
         });
     }
 });

@@ -2,7 +2,7 @@
 /**
  * Clase para manejar todas las vistas y funcionalidades del panel de administración
  * 
- * Archivo: includes/class-cp-admin.php (actualizado con logs)
+ * Archivo: includes/class-cp-admin.php (actualizado con logs completos)
  */
 
 if (!defined('ABSPATH')) {
@@ -30,6 +30,7 @@ class CP_Admin {
     private function __construct() {
         $this->db = CP_Database::get_instance();
         $this->init_hooks();
+        $this->register_logs_ajax_hooks(); // AGREGADO: Registrar hooks de logs
     }
     
     /**
@@ -45,17 +46,26 @@ class CP_Admin {
         add_action('wp_ajax_cp_get_tables', array($this, 'ajax_get_tables'));
         add_action('wp_ajax_cp_diagnose_system', array($this, 'ajax_diagnose_system'));
         
-        // Nuevos hooks AJAX para logs y testing
+        // Nuevos hooks AJAX para testing
         add_action('wp_ajax_cp_test_stored_procedure', array($this, 'ajax_test_stored_procedure'));
         add_action('wp_ajax_cp_execute_admin_query', array($this, 'ajax_execute_admin_query'));
         add_action('wp_ajax_cp_get_system_logs', array($this, 'ajax_get_system_logs'));
         add_action('wp_ajax_cp_clear_system_logs', array($this, 'ajax_clear_system_logs'));
-        add_action('wp_ajax_cp_get_frontend_logs', array($this, 'ajax_get_frontend_logs'));
         
         // Debug: Verificar que los hooks se registren
         add_action('wp_loaded', function() {
             error_log('CP Admin: Hooks AJAX registrados correctamente');
         });
+    }
+    
+    /**
+     * NUEVO: Registrar hooks AJAX para logs del frontend
+     */
+    private function register_logs_ajax_hooks() {
+        // Logs del frontend
+        add_action('wp_ajax_cp_get_frontend_logs', array($this, 'ajax_get_frontend_logs'));
+        add_action('wp_ajax_cp_clear_frontend_logs', array($this, 'ajax_clear_frontend_logs'));
+        add_action('wp_ajax_cp_export_frontend_logs', array($this, 'ajax_export_frontend_logs'));
     }
     
     /**
@@ -207,7 +217,7 @@ class CP_Admin {
             // Localizar script para AJAX
             wp_localize_script('cp-admin-js', 'cp_ajax', array(
                 'url' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('cp_nonce'),
+                'nonce' => wp_create_nonce('cp_admin_nonce'), // CORREGIDO: nonce específico para admin
                 'messages' => array(
                     'testing' => __('Probando conexión...', 'consulta-procesos'),
                     'success' => __('Conexión exitosa', 'consulta-procesos'),
@@ -307,7 +317,7 @@ class CP_Admin {
      * AJAX: Probar conexión
      */
     public function ajax_test_connection() {
-        check_ajax_referer('cp_nonce', 'nonce');
+        check_ajax_referer('cp_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
             wp_die('No autorizado');
@@ -332,7 +342,7 @@ class CP_Admin {
      * AJAX: Obtener tablas disponibles
      */
     public function ajax_get_tables() {
-        check_ajax_referer('cp_nonce', 'nonce');
+        check_ajax_referer('cp_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
             wp_die('No autorizado');
@@ -357,7 +367,7 @@ class CP_Admin {
      * AJAX: Diagnosticar sistema
      */
     public function ajax_diagnose_system() {
-        check_ajax_referer('cp_nonce', 'nonce');
+        check_ajax_referer('cp_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
             wp_die('No autorizado');
@@ -376,7 +386,7 @@ class CP_Admin {
      * AJAX: Probar stored procedure
      */
     public function ajax_test_stored_procedure() {
-        check_ajax_referer('cp_nonce', 'nonce');
+        check_ajax_referer('cp_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
             wp_die('No autorizado');
@@ -492,7 +502,7 @@ class CP_Admin {
      * AJAX: Ejecutar consulta de admin (permite EXEC)
      */
     public function ajax_execute_admin_query() {
-        check_ajax_referer('cp_nonce', 'nonce');
+        check_ajax_referer('cp_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
             wp_die('No autorizado');
@@ -606,102 +616,352 @@ class CP_Admin {
      * AJAX: Obtener logs del sistema
      */
     public function ajax_get_system_logs() {
-        check_ajax_referer('cp_nonce', 'nonce');
+        check_ajax_referer('cp_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
             wp_die('No autorizado');
         }
         
-        $log_file = WP_CONTENT_DIR . '/debug.log';
-        
-        if (!file_exists($log_file)) {
-            wp_send_json_success(array(
-                'logs' => 'Archivo de logs no encontrado en: ' . $log_file,
-                'file_exists' => false
-            ));
-        }
-        
-        // Leer las últimas 100 líneas del log
-        $lines = array();
-        $file = new SplFileObject($log_file);
-        $file->seek(PHP_INT_MAX);
-        $total_lines = $file->key();
-        
-        $start = max(0, $total_lines - 200); // Últimas 200 líneas
-        $file->seek($start);
-        
-        while (!$file->eof()) {
-            $line = $file->fgets();
-            if (strpos($line, 'CP Frontend') !== false || 
-                strpos($line, 'CP Admin') !== false || 
-                strpos($line, 'CP Database') !== false) {
-                $lines[] = $line;
+        try {
+            $log_file = WP_CONTENT_DIR . '/debug.log';
+            
+            if (!file_exists($log_file)) {
+                wp_send_json_success(array(
+                    'logs' => 'Archivo debug.log no encontrado.',
+                    'file_size' => 0
+                ));
             }
+            
+            $file_size = filesize($log_file);
+            
+            // Leer las últimas 100KB del archivo para no sobrecargar
+            $max_size = 100 * 1024; // 100KB
+            
+            if ($file_size > $max_size) {
+                $handle = fopen($log_file, 'r');
+                fseek($handle, -$max_size, SEEK_END);
+                $logs = fread($handle, $max_size);
+                fclose($handle);
+                
+                // Buscar el primer salto de línea para evitar líneas cortadas
+                $first_newline = strpos($logs, "\n");
+                if ($first_newline !== false) {
+                    $logs = substr($logs, $first_newline + 1);
+                }
+                
+                $logs = "... (mostrando últimos " . size_format($max_size) . ")\n\n" . $logs;
+            } else {
+                $logs = file_get_contents($log_file);
+            }
+            
+            // Filtrar logs relacionados con el plugin si es posible
+            $lines = explode("\n", $logs);
+            $cp_lines = array();
+            $other_lines = array();
+            
+            foreach ($lines as $line) {
+                if (strpos($line, 'CP Frontend') !== false || 
+                    strpos($line, 'CP Admin') !== false || 
+                    strpos($line, 'consulta-procesos') !== false) {
+                    $cp_lines[] = $line;
+                } else {
+                    $other_lines[] = $line;
+                }
+            }
+            
+            // Mostrar logs del plugin primero si los hay
+            if (!empty($cp_lines)) {
+                $formatted_logs = "=== LOGS DEL PLUGIN CONSULTA PROCESOS ===\n";
+                $formatted_logs .= implode("\n", array_slice($cp_lines, -50)); // Últimas 50 líneas del plugin
+                $formatted_logs .= "\n\n=== OTROS LOGS DEL SISTEMA ===\n";
+                $formatted_logs .= implode("\n", array_slice($other_lines, -50)); // Últimas 50 líneas del sistema
+                $logs = $formatted_logs;
+            }
+            
+            wp_send_json_success(array(
+                'logs' => $logs,
+                'file_size' => $file_size
+            ));
+            
+        } catch (Exception $e) {
+            error_log('CP Admin: Error obteniendo logs del sistema - ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error obteniendo logs del sistema: ' . $e->getMessage()));
         }
-        
-        wp_send_json_success(array(
-            'logs' => implode('', array_slice($lines, -50)), // Últimas 50 líneas relevantes
-            'file_exists' => true,
-            'file_size' => filesize($log_file)
-        ));
     }
     
     /**
      * AJAX: Limpiar logs del sistema
      */
     public function ajax_clear_system_logs() {
-        check_ajax_referer('cp_nonce', 'nonce');
+        check_ajax_referer('cp_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
             wp_die('No autorizado');
         }
         
-        $log_file = WP_CONTENT_DIR . '/debug.log';
-        
-        if (file_exists($log_file)) {
-            file_put_contents($log_file, '');
-            wp_send_json_success(array('message' => 'Logs limpiados exitosamente'));
-        } else {
-            wp_send_json_error(array('message' => 'Archivo de logs no encontrado'));
+        try {
+            $log_file = WP_CONTENT_DIR . '/debug.log';
+            
+            if (!file_exists($log_file)) {
+                wp_send_json_success(array('message' => 'Archivo debug.log no existe'));
+            }
+            
+            // Hacer backup antes de limpiar
+            $backup_file = WP_CONTENT_DIR . '/debug.log.backup.' . date('Y-m-d-H-i-s');
+            if (copy($log_file, $backup_file)) {
+                error_log('CP Admin: Backup de debug.log creado en: ' . $backup_file);
+            }
+            
+            // Limpiar el archivo
+            $result = file_put_contents($log_file, '');
+            
+            if ($result !== false) {
+                wp_send_json_success(array('message' => 'Logs del sistema limpiados exitosamente'));
+            } else {
+                wp_send_json_error(array('message' => 'Error limpiando logs del sistema'));
+            }
+            
+        } catch (Exception $e) {
+            error_log('CP Admin: Error limpiando logs del sistema - ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error limpiando logs del sistema: ' . $e->getMessage()));
         }
     }
     
     /**
-     * AJAX: Obtener logs del frontend
+     * NUEVO: AJAX para obtener logs del frontend para admin
      */
     public function ajax_get_frontend_logs() {
-        check_ajax_referer('cp_nonce', 'nonce');
-        
+        // Verificar permisos
         if (!current_user_can('manage_options')) {
-            wp_die('No autorizado');
+            wp_send_json_error(array('message' => 'Permisos insuficientes'));
+        }
+        
+        // Verificar nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'cp_admin_nonce')) {
+            wp_send_json_error(array('message' => 'Token de seguridad inválido'));
         }
         
         global $wpdb;
-        
         $table_name = $wpdb->prefix . 'cp_frontend_logs';
         
-        // Verificar que la tabla existe
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+        try {
+            // Verificar que la tabla existe
+            if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+                wp_send_json_error(array('message' => 'Tabla de logs no encontrada'));
+            }
+            
+            // Obtener parámetros de filtrado y paginación
+            $page = intval($_POST['page'] ?? 1);
+            $page_size = intval($_POST['page_size'] ?? 50);
+            $status_filter = sanitize_text_field($_POST['status'] ?? '');
+            $profile_filter = sanitize_text_field($_POST['profile'] ?? '');
+            $date_filter = sanitize_text_field($_POST['date'] ?? '');
+            $stats_only = isset($_POST['stats_only']) && $_POST['stats_only'];
+            
+            // Construir WHERE clause para filtros
+            $where_conditions = array();
+            $where_params = array();
+            
+            if (!empty($status_filter)) {
+                $where_conditions[] = "status = %s";
+                $where_params[] = $status_filter;
+            }
+            
+            if (!empty($profile_filter)) {
+                $where_conditions[] = "profile_type = %s";
+                $where_params[] = $profile_filter;
+            }
+            
+            if (!empty($date_filter)) {
+                $where_conditions[] = "DATE(created_at) = %s";
+                $where_params[] = $date_filter;
+            }
+            
+            $where_clause = '';
+            if (!empty($where_conditions)) {
+                $where_clause = 'WHERE ' . implode(' AND ', $where_conditions);
+            }
+            
+            // Obtener estadísticas generales
+            $stats = array();
+            
+            $stats['total'] = intval($wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table_name} {$where_clause}",
+                $where_params
+            )));
+            
+            $successful_query = "SELECT COUNT(*) FROM {$table_name} {$where_clause}";
+            if (!empty($where_clause)) {
+                $successful_query .= " AND status = 'success'";
+                $successful_params = array_merge($where_params, array('success'));
+            } else {
+                $successful_query .= " WHERE status = 'success'";
+                $successful_params = array('success');
+            }
+            
+            $stats['successful'] = intval($wpdb->get_var($wpdb->prepare($successful_query, $successful_params)));
+            
+            $failed_query = "SELECT COUNT(*) FROM {$table_name} {$where_clause}";
+            if (!empty($where_clause)) {
+                $failed_query .= " AND status = 'error'";
+                $failed_params = array_merge($where_params, array('error'));
+            } else {
+                $failed_query .= " WHERE status = 'error'";
+                $failed_params = array('error');
+            }
+            
+            $stats['failed'] = intval($wpdb->get_var($wpdb->prepare($failed_query, $failed_params)));
+            
+            // Estadísticas por perfil
+            $entidades_query = "SELECT COUNT(*) FROM {$table_name} {$where_clause}";
+            if (!empty($where_clause)) {
+                $entidades_query .= " AND profile_type = 'entidades'";
+                $entidades_params = array_merge($where_params, array('entidades'));
+            } else {
+                $entidades_query .= " WHERE profile_type = 'entidades'";
+                $entidades_params = array('entidades');
+            }
+            
+            $stats['entidades'] = intval($wpdb->get_var($wpdb->prepare($entidades_query, $entidades_params)));
+            
+            $proveedores_query = "SELECT COUNT(*) FROM {$table_name} {$where_clause}";
+            if (!empty($where_clause)) {
+                $proveedores_query .= " AND profile_type = 'proveedores'";
+                $proveedores_params = array_merge($where_params, array('proveedores'));
+            } else {
+                $proveedores_query .= " WHERE profile_type = 'proveedores'";
+                $proveedores_params = array('proveedores');
+            }
+            
+            $stats['proveedores'] = intval($wpdb->get_var($wpdb->prepare($proveedores_query, $proveedores_params)));
+            
+            // Si solo se solicitan estadísticas, devolver solo eso
+            if ($stats_only) {
+                wp_send_json_success(array('stats' => $stats));
+            }
+            
+            // Obtener logs con paginación
+            $offset = ($page - 1) * $page_size;
+            
+            $logs_query = "SELECT * FROM {$table_name} {$where_clause} ORDER BY created_at DESC LIMIT %d OFFSET %d";
+            $logs_params = array_merge($where_params, array($page_size, $offset));
+            
+            $logs = $wpdb->get_results($wpdb->prepare($logs_query, $logs_params), ARRAY_A);
+            
             wp_send_json_success(array(
-                'logs' => array(),
-                'total' => 0,
-                'message' => 'Tabla de logs no encontrada'
+                'logs' => $logs,
+                'stats' => $stats,
+                'pagination' => array(
+                    'current_page' => $page,
+                    'page_size' => $page_size,
+                    'total_pages' => ceil($stats['total'] / $page_size)
+                )
             ));
+            
+        } catch (Exception $e) {
+            error_log('CP Admin: Error obteniendo logs del frontend - ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error obteniendo logs: ' . $e->getMessage()));
+        }
+    }
+    
+    /**
+     * NUEVO: AJAX para limpiar logs del frontend
+     */
+    public function ajax_clear_frontend_logs() {
+        // Verificar permisos
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Permisos insuficientes'));
         }
         
-        $logs = $wpdb->get_results(
-            "SELECT * FROM {$table_name} 
-             ORDER BY created_at DESC 
-             LIMIT 50",
-            ARRAY_A
-        );
+        // Verificar nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'cp_admin_nonce')) {
+            wp_send_json_error(array('message' => 'Token de seguridad inválido'));
+        }
         
-        $total = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'cp_frontend_logs';
         
-        wp_send_json_success(array(
-            'logs' => $logs,
-            'total' => $total
-        ));
+        try {
+            // Verificar que la tabla existe
+            if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+                wp_send_json_error(array('message' => 'Tabla de logs no encontrada'));
+            }
+            
+            // Contar registros antes de eliminar
+            $count_before = intval($wpdb->get_var("SELECT COUNT(*) FROM {$table_name}"));
+            
+            // Eliminar todos los registros
+            $result = $wpdb->query("DELETE FROM {$table_name}");
+            
+            if ($result !== false) {
+                wp_send_json_success(array(
+                    'message' => 'Logs del frontend limpiados exitosamente',
+                    'deleted_rows' => $count_before
+                ));
+            } else {
+                wp_send_json_error(array('message' => 'Error limpiando logs: ' . $wpdb->last_error));
+            }
+            
+        } catch (Exception $e) {
+            error_log('CP Admin: Error limpiando logs del frontend - ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error limpiando logs: ' . $e->getMessage()));
+        }
+    }
+    
+    /**
+     * NUEVO: AJAX para exportar logs del frontend
+     */
+    public function ajax_export_frontend_logs() {
+        // Verificar permisos
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Permisos insuficientes'));
+        }
+        
+        // Verificar nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'cp_admin_nonce')) {
+            wp_send_json_error(array('message' => 'Token de seguridad inválido'));
+        }
+        
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'cp_frontend_logs';
+        
+        try {
+            // Verificar que la tabla existe
+            if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+                wp_send_json_error(array('message' => 'Tabla de logs no encontrada'));
+            }
+            
+            // Obtener todos los logs
+            $logs = $wpdb->get_results("SELECT * FROM {$table_name} ORDER BY created_at DESC", ARRAY_A);
+            
+            // Configurar headers para descarga
+            $filename = 'consulta_procesos_logs_' . date('Y-m-d_H-i-s') . '.csv';
+            
+            header('Content-Type: text/csv');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            header('Pragma: no-cache');
+            header('Expires: 0');
+            
+            // Crear CSV
+            $output = fopen('php://output', 'w');
+            
+            // Headers CSV
+            if (!empty($logs)) {
+                fputcsv($output, array_keys($logs[0]));
+                
+                // Datos
+                foreach ($logs as $log) {
+                    fputcsv($output, $log);
+                }
+            }
+            
+            fclose($output);
+            exit;
+            
+        } catch (Exception $e) {
+            error_log('CP Admin: Error exportando logs del frontend - ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error exportando logs: ' . $e->getMessage()));
+        }
     }
     
     /**
@@ -771,7 +1031,7 @@ class CP_Admin {
     /**
      * Generar nonce para formularios
      */
-    public function get_nonce_field($action = 'cp_nonce') {
+    public function get_nonce_field($action = 'cp_admin_nonce') {
         return wp_nonce_field($action, '_wpnonce', true, false);
     }
     
@@ -883,7 +1143,7 @@ class CP_Admin {
      * AJAX: Limpiar caché
      */
     public function ajax_clear_cache() {
-        check_ajax_referer('cp_nonce', 'nonce');
+        check_ajax_referer('cp_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
             wp_die('No autorizado');
@@ -907,7 +1167,7 @@ class CP_Admin {
      * AJAX: Obtener estadísticas de caché
      */
     public function ajax_get_cache_stats() {
-        check_ajax_referer('cp_nonce', 'nonce');
+        check_ajax_referer('cp_admin_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
             wp_die('No autorizado');

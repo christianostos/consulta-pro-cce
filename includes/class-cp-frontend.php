@@ -5,6 +5,7 @@
  * Archivo: includes/class-cp-frontend.php
  * CORREGIDO: Sintaxis y parámetros de stored procedures
  * AGREGADO: Indicador de progreso para consultas
+ * MEJORADO: Sistema completo de logs con manejo de errores
  */
 
 if (!defined('ABSPATH')) {
@@ -32,6 +33,7 @@ class CP_Frontend {
     private function __construct() {
         $this->db = CP_Database::get_instance();
         $this->init_hooks();
+        $this->create_logs_table();
     }
     
     /**
@@ -51,6 +53,53 @@ class CP_Frontend {
         // NUEVO: Hook para obtener progreso de búsqueda
         add_action('wp_ajax_cp_get_search_progress', array($this, 'ajax_get_search_progress'));
         add_action('wp_ajax_nopriv_cp_get_search_progress', array($this, 'ajax_get_search_progress'));
+        
+        // NUEVO: Hooks para logs del frontend (admin)
+        add_action('wp_ajax_cp_get_frontend_logs', array($this, 'ajax_get_frontend_logs'));
+        add_action('wp_ajax_cp_clear_frontend_logs', array($this, 'ajax_clear_frontend_logs'));
+    }
+    
+    /**
+     * NUEVO: Crear tabla de logs si no existe
+     */
+    private function create_logs_table() {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'cp_frontend_logs';
+        
+        $charset_collate = $wpdb->get_charset_collate();
+        
+        $sql = "CREATE TABLE $table_name (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            session_id varchar(255) NOT NULL DEFAULT '',
+            profile_type varchar(50) NOT NULL,
+            fecha_inicio date NOT NULL,
+            fecha_fin date NOT NULL,
+            numero_documento varchar(100) NOT NULL,
+            search_sources text,
+            status varchar(20) NOT NULL DEFAULT 'success',
+            error_message text,
+            results_found int(11) NOT NULL DEFAULT 0,
+            execution_time decimal(8,3) DEFAULT NULL,
+            ip_address varchar(45) NOT NULL DEFAULT '',
+            user_agent text,
+            created_at datetime NOT NULL,
+            PRIMARY KEY (id),
+            KEY idx_created_at (created_at),
+            KEY idx_profile_type (profile_type),
+            KEY idx_status (status),
+            KEY idx_numero_documento (numero_documento)
+        ) $charset_collate;";
+        
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+        
+        // Verificar que la tabla se creó correctamente
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+            error_log('CP Frontend: Error creando tabla de logs: ' . $table_name);
+        } else {
+            error_log('CP Frontend: Tabla de logs verificada: ' . $table_name);
+        }
     }
     
     /**
@@ -329,12 +378,16 @@ class CP_Frontend {
     }
     
     /**
-     * AJAX: Procesar búsqueda del formulario - MEJORADO CON PROGRESO
+     * AJAX: Procesar búsqueda del formulario - MEJORADO CON LOGS COMPLETOS
      */
     public function ajax_process_search_form() {
+        $start_time = microtime(true);
+        $log_data = array();
+        
         // Verificar nonce
         if (!wp_verify_nonce($_POST['nonce'], 'cp_frontend_nonce')) {
             error_log('CP Frontend: Nonce inválido');
+            $this->log_search_error('nonce_invalid', 'Token de seguridad inválido', null, null, null, null, $start_time);
             wp_send_json_error(array('message' => 'Token de seguridad inválido'));
         }
         
@@ -344,18 +397,27 @@ class CP_Frontend {
         $fecha_fin = sanitize_text_field($_POST['fecha_fin'] ?? '');
         $numero_documento = sanitize_text_field($_POST['numero_documento'] ?? '');
         
+        $log_data = array(
+            'profile_type' => $profile_type,
+            'fecha_inicio' => $fecha_inicio,
+            'fecha_fin' => $fecha_fin,
+            'numero_documento' => $numero_documento
+        );
+        
         // Log para debugging
         error_log("CP Frontend: Búsqueda iniciada - Perfil: {$profile_type}, Documento: {$numero_documento}, Fechas: {$fecha_inicio} a {$fecha_fin}");
         
         // Validar datos
         if (empty($profile_type) || empty($fecha_inicio) || empty($fecha_fin) || empty($numero_documento)) {
             error_log('CP Frontend: Faltan datos requeridos');
+            $this->log_search_error('missing_data', 'Faltan datos requeridos', $profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $start_time);
             wp_send_json_error(array('message' => 'Faltan datos requeridos'));
         }
         
         // Validar fechas
         if (!$this->validate_date_range($fecha_inicio, $fecha_fin)) {
             error_log('CP Frontend: Rango de fechas inválido');
+            $this->log_search_error('invalid_date_range', 'Rango de fechas inválido', $profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $start_time);
             wp_send_json_error(array('message' => 'Rango de fechas inválido'));
         }
         
@@ -367,7 +429,7 @@ class CP_Frontend {
             $this->init_search_progress($search_id, $profile_type, $fecha_inicio, $fecha_fin, $numero_documento);
             
             // Iniciar búsqueda en background inmediatamente
-            $this->start_actual_search($search_id);
+            $this->start_actual_search($search_id, $start_time);
             
             // Enviar ID de búsqueda al cliente para que pueda hacer seguimiento
             wp_send_json_success(array(
@@ -378,6 +440,7 @@ class CP_Frontend {
             
         } catch (Exception $e) {
             error_log('CP Frontend Search Error: ' . $e->getMessage());
+            $this->log_search_error('system_error', $e->getMessage(), $profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $start_time);
             wp_send_json_error(array('message' => 'Error interno del servidor: ' . $e->getMessage()));
         }
     }
@@ -405,6 +468,82 @@ class CP_Frontend {
         }
         
         wp_send_json_success($progress);
+    }
+    
+    /**
+     * NUEVO: AJAX para obtener logs del frontend (para admin)
+     */
+    public function ajax_get_frontend_logs() {
+        // Verificar permisos de administrador
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Permisos insuficientes'));
+        }
+        
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'cp_frontend_logs';
+        
+        try {
+            // Obtener logs más recientes (últimos 1000)
+            $logs = $wpdb->get_results("
+                SELECT * FROM {$table_name} 
+                ORDER BY created_at DESC 
+                LIMIT 1000
+            ", ARRAY_A);
+            
+            // Obtener estadísticas
+            $total_searches = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
+            $successful_searches = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE status = 'success'");
+            $failed_searches = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE status = 'error'");
+            
+            // Estadísticas por perfil
+            $entidades_count = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE profile_type = 'entidades'");
+            $proveedores_count = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE profile_type = 'proveedores'");
+            
+            wp_send_json_success(array(
+                'logs' => $logs,
+                'stats' => array(
+                    'total' => intval($total_searches),
+                    'successful' => intval($successful_searches),
+                    'failed' => intval($failed_searches),
+                    'entidades' => intval($entidades_count),
+                    'proveedores' => intval($proveedores_count)
+                )
+            ));
+            
+        } catch (Exception $e) {
+            error_log('CP Frontend: Error obteniendo logs - ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error obteniendo logs: ' . $e->getMessage()));
+        }
+    }
+    
+    /**
+     * NUEVO: AJAX para limpiar logs del frontend (para admin)
+     */
+    public function ajax_clear_frontend_logs() {
+        // Verificar permisos de administrador
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Permisos insuficientes'));
+        }
+        
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'cp_frontend_logs';
+        
+        try {
+            $result = $wpdb->query("DELETE FROM {$table_name}");
+            
+            if ($result !== false) {
+                wp_send_json_success(array(
+                    'message' => 'Logs limpiados exitosamente',
+                    'deleted_rows' => $result
+                ));
+            } else {
+                wp_send_json_error(array('message' => 'Error limpiando logs'));
+            }
+            
+        } catch (Exception $e) {
+            error_log('CP Frontend: Error limpiando logs - ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error limpiando logs: ' . $e->getMessage()));
+        }
     }
     
     /**
@@ -517,9 +656,13 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: Iniciar búsqueda real con seguimiento de progreso
+     * NUEVO: Iniciar búsqueda real con seguimiento de progreso - MEJORADO CON LOGS
      */
-    private function start_actual_search($search_id) {
+    private function start_actual_search($search_id, $start_time = null) {
+        if ($start_time === null) {
+            $start_time = microtime(true);
+        }
+        
         // No ejecutar búsqueda completa aquí, solo marcar como iniciada
         $this->update_search_progress($search_id, array(
             'status' => 'running',
@@ -530,7 +673,7 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: Ejecutar siguiente paso de búsqueda
+     * NUEVO: Ejecutar siguiente paso de búsqueda - MEJORADO CON LOGS
      */
     private function execute_next_search_step($search_id) {
         $progress = get_transient($search_id);
@@ -565,6 +708,13 @@ class CP_Frontend {
         $fecha_inicio = $search_params['fecha_inicio'];
         $fecha_fin = $search_params['fecha_fin'];
         $numero_documento = $search_params['numero_documento'];
+        
+        // NUEVO: Calcular tiempo de ejecución para logs
+        $search_start_time = isset($progress['search_start_time']) ? $progress['search_start_time'] : microtime(true);
+        if (!isset($progress['search_start_time'])) {
+            $progress['search_start_time'] = $search_start_time;
+            set_transient($search_id, $progress, 600);
+        }
         
         // CORREGIDO: Buscar siguiente fuente pendiente (no running)
         $next_source = null;
@@ -668,6 +818,8 @@ class CP_Frontend {
         $all_completed = true;
         $total_records = 0;
         $status_summary = array();
+        $has_errors = false;
+        $error_messages = array();
         
         foreach ($current_progress['sources_progress'] as $source => $source_progress) {
             $status_summary[] = "{$source}: {$source_progress['status']}";
@@ -678,22 +830,37 @@ class CP_Frontend {
             if ($source_progress['status'] === 'completed') {
                 $total_records += $source_progress['records_found'];
             }
+            if ($source_progress['status'] === 'error') {
+                $has_errors = true;
+                $error_messages[] = $source_progress['message'];
+            }
         }
         
         error_log("CP Frontend: Estado actual - " . implode(', ', $status_summary));
         
         if ($all_completed) {
-            // Registrar búsqueda en el log
-            $this->log_frontend_search($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $total_records);
+            $execution_time = round((microtime(true) - $search_start_time), 3);
+            
+            // NUEVO: Registrar búsqueda en logs con resultado final
+            if ($has_errors && $total_records === 0) {
+                // Todas las fuentes fallaron
+                $this->log_search_error('all_sources_failed', implode('; ', $error_messages), 
+                    $profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_start_time, $execution_time);
+            } else {
+                // Al menos una fuente funcionó o hay resultados
+                $this->log_frontend_search($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, 
+                    $total_records, $execution_time, $has_errors ? 'partial_success' : 'success');
+            }
             
             $this->update_search_progress($search_id, array(
                 'status' => 'completed',
                 'total_records' => $total_records,
                 'overall_progress' => 100,
+                'execution_time' => $execution_time,
                 'message' => __('Búsqueda completada', 'consulta-procesos')
             ));
             
-            error_log("CP Frontend: *** BÚSQUEDA COMPLETADA *** search_id: {$search_id} con {$total_records} registros totales");
+            error_log("CP Frontend: *** BÚSQUEDA COMPLETADA *** search_id: {$search_id} con {$total_records} registros totales en {$execution_time}s");
         }
         
         return get_transient($search_id);
@@ -1351,16 +1518,17 @@ class CP_Frontend {
     }
     
     /**
-     * Registrar búsqueda en el log del frontend
+     * MEJORADO: Registrar búsqueda exitosa en el log del frontend
      */
-    private function log_frontend_search($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $results_count) {
+    private function log_frontend_search($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $results_count, $execution_time = null, $status = 'success') {
         global $wpdb;
         
         $table_name = $wpdb->prefix . 'cp_frontend_logs';
         
         // Verificar que la tabla existe
         if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
-            return;
+            error_log('CP Frontend: Tabla de logs no existe: ' . $table_name);
+            return false;
         }
         
         $search_sources = array();
@@ -1372,22 +1540,91 @@ class CP_Frontend {
             }
         }
         
-        $wpdb->insert(
-            $table_name,
-            array(
-                'session_id' => session_id() ?: 'no-session',
-                'profile_type' => $profile_type,
-                'fecha_inicio' => $fecha_inicio,
-                'fecha_fin' => $fecha_fin,
-                'numero_documento' => $numero_documento,
-                'search_sources' => implode(',', $search_sources),
-                'results_found' => $results_count,
-                'ip_address' => $this->get_client_ip(),
-                'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
-                'created_at' => current_time('mysql')
-            ),
-            array('%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s')
+        $log_data = array(
+            'session_id' => session_id() ?: 'no-session',
+            'profile_type' => $profile_type,
+            'fecha_inicio' => $fecha_inicio,
+            'fecha_fin' => $fecha_fin,
+            'numero_documento' => $numero_documento,
+            'search_sources' => implode(',', $search_sources),
+            'status' => $status,
+            'error_message' => null,
+            'results_found' => intval($results_count),
+            'execution_time' => $execution_time,
+            'ip_address' => $this->get_client_ip(),
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            'created_at' => current_time('mysql')
         );
+        
+        $result = $wpdb->insert($table_name, $log_data, array(
+            '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%f', '%s', '%s', '%s'
+        ));
+        
+        if ($result === false) {
+            error_log('CP Frontend: Error insertando log de búsqueda exitosa: ' . $wpdb->last_error);
+            return false;
+        }
+        
+        error_log("CP Frontend: Log de búsqueda registrado - ID: {$wpdb->insert_id}, Status: {$status}, Resultados: {$results_count}");
+        return $wpdb->insert_id;
+    }
+    
+    /**
+     * NUEVO: Registrar error en el log del frontend
+     */
+    private function log_search_error($error_type, $error_message, $profile_type = '', $fecha_inicio = '', $fecha_fin = '', $numero_documento = '', $start_time = null, $execution_time = null) {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'cp_frontend_logs';
+        
+        // Verificar que la tabla existe
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+            error_log('CP Frontend: Tabla de logs no existe para error: ' . $table_name);
+            return false;
+        }
+        
+        // Calcular tiempo de ejecución si se proporcionó start_time
+        if ($execution_time === null && $start_time !== null) {
+            $execution_time = round((microtime(true) - $start_time), 3);
+        }
+        
+        $search_sources = array();
+        if (!empty($profile_type)) {
+            $search_config = $this->get_search_configuration();
+            foreach ($search_config as $source => $config) {
+                if ($config['active']) {
+                    $search_sources[] = $source . ':' . $config['method'];
+                }
+            }
+        }
+        
+        $log_data = array(
+            'session_id' => session_id() ?: 'no-session',
+            'profile_type' => $profile_type ?: 'unknown',
+            'fecha_inicio' => $fecha_inicio ?: '0000-00-00',
+            'fecha_fin' => $fecha_fin ?: '0000-00-00', 
+            'numero_documento' => $numero_documento ?: '',
+            'search_sources' => implode(',', $search_sources),
+            'status' => 'error',
+            'error_message' => $error_type . ': ' . $error_message,
+            'results_found' => 0,
+            'execution_time' => $execution_time,
+            'ip_address' => $this->get_client_ip(),
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            'created_at' => current_time('mysql')
+        );
+        
+        $result = $wpdb->insert($table_name, $log_data, array(
+            '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%f', '%s', '%s', '%s'
+        ));
+        
+        if ($result === false) {
+            error_log('CP Frontend: Error insertando log de error: ' . $wpdb->last_error);
+            return false;
+        }
+        
+        error_log("CP Frontend: Log de error registrado - ID: {$wpdb->insert_id}, Tipo: {$error_type}, Mensaje: {$error_message}");
+        return $wpdb->insert_id;
     }
     
     /**
@@ -1492,5 +1729,31 @@ class CP_Frontend {
             'cache_enabled' => get_option('cp_enable_cache', true),
             'cache_duration' => get_option('cp_cache_duration', 300)
         );
+    }
+    
+    /**
+     * NUEVO: Obtener estadísticas de logs para el admin
+     */
+    public function get_logs_stats() {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'cp_frontend_logs';
+        
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+            return array(
+                'total_searches' => 0,
+                'successful_searches' => 0,
+                'failed_searches' => 0,
+                'last_search' => null
+            );
+        }
+        
+        $stats = array();
+        $stats['total_searches'] = intval($wpdb->get_var("SELECT COUNT(*) FROM {$table_name}"));
+        $stats['successful_searches'] = intval($wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE status = 'success'"));
+        $stats['failed_searches'] = intval($wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE status = 'error'"));
+        $stats['last_search'] = $wpdb->get_var("SELECT created_at FROM {$table_name} ORDER BY created_at DESC LIMIT 1");
+        
+        return $stats;
     }
 }
