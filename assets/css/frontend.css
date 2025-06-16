@@ -320,6 +320,13 @@
     gap: 4px;
 }
 
+.cp-help-text {
+    display: block;
+    margin-top: 5px;
+    color: #666;
+    font-size: 13px;
+}
+
 .required {
     color: #dc3545;
     font-weight: 700;

@@ -314,9 +314,11 @@ class CP_Frontend {
     private function render_search_step() {
         ?>
         <div class="cp-search-container">
-            <h3><?php _e('Formulario de Búsqueda', 'consulta-procesos'); ?></h3>
+            <h3 style="color: #233A79; margin-bottom: 5px;"><b><?php _e('Formulario de Búsqueda', 'consulta-procesos'); ?></b></h3>
+            <p><?php _e('Formulario de búsqueda de procesos de contratación por Entidad', 'consulta-procesos'); ?></p>
             
             <form id="cp-search-form" class="cp-search-form">
+                <h3><b><?php _e('Datos de búsqueda', 'consulta-procesos'); ?></b></h3>
                 <div class="cp-form-grid">
                     <div class="cp-form-group">
                         <label for="cp-fecha-inicio">
@@ -337,6 +339,9 @@ class CP_Frontend {
                             <?php _e('Número de Documento', 'consulta-procesos'); ?> <span class="required">*</span>
                         </label>
                         <input type="text" id="cp-numero-documento" name="numero_documento" placeholder="<?php _e('Ingrese el número', 'consulta-procesos'); ?>" required>
+                        <small class="cp-help-text">
+                            <?php _e('Por favor ingrese el número de identificación sin puntos, guión, coma y sin digito de verificación. Ej: 900514813', 'consulta-procesos'); ?>
+                        </small>
                     </div>
                 </div>
                 
