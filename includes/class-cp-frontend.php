@@ -3,9 +3,7 @@
  * Clase para manejar la funcionalidad del frontend del plugin
  * 
  * Archivo: includes/class-cp-frontend.php
- * CORREGIDO: Sintaxis y parámetros de stored procedures
- * AGREGADO: Indicador de progreso para consultas
- * MEJORADO: Sistema completo de logs con manejo de errores
+ * ACTUALIZADO: Con implementación completa de APIs
  */
 
 if (!defined('ABSPATH')) {
@@ -50,17 +48,17 @@ class CP_Frontend {
         add_action('wp_ajax_cp_process_search_form', array($this, 'ajax_process_search_form'));
         add_action('wp_ajax_nopriv_cp_process_search_form', array($this, 'ajax_process_search_form'));
         
-        // NUEVO: Hook para obtener progreso de búsqueda
+        // Hook para obtener progreso de búsqueda
         add_action('wp_ajax_cp_get_search_progress', array($this, 'ajax_get_search_progress'));
         add_action('wp_ajax_nopriv_cp_get_search_progress', array($this, 'ajax_get_search_progress'));
         
-        // NUEVO: Hooks para logs del frontend (admin)
+        // Hooks para logs del frontend (admin)
         add_action('wp_ajax_cp_get_frontend_logs', array($this, 'ajax_get_frontend_logs'));
         add_action('wp_ajax_cp_clear_frontend_logs', array($this, 'ajax_clear_frontend_logs'));
     }
     
     /**
-     * NUEVO: Crear tabla de logs si no existe
+     * Crear tabla de logs si no existe
      */
     private function create_logs_table() {
         global $wpdb;
@@ -198,7 +196,7 @@ class CP_Frontend {
                 <?php $this->render_search_step(); ?>
             </div>
             
-            <!-- NUEVO: Indicador de progreso de búsqueda -->
+            <!-- Indicador de progreso de búsqueda -->
             <div class="cp-search-progress-container" style="display: none;">
                 <div class="cp-search-progress-header">
                     <h3><?php _e('Procesando Búsqueda', 'consulta-procesos'); ?></h3>
@@ -451,7 +449,7 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: AJAX para obtener progreso de búsqueda
+     * AJAX para obtener progreso de búsqueda
      */
     public function ajax_get_search_progress() {
         // Verificar nonce
@@ -476,7 +474,7 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: AJAX para obtener logs del frontend (para admin)
+     * AJAX para obtener logs del frontend (para admin)
      */
     public function ajax_get_frontend_logs() {
         // Verificar permisos de administrador
@@ -522,7 +520,7 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: AJAX para limpiar logs del frontend (para admin)
+     * AJAX para limpiar logs del frontend (para admin)
      */
     public function ajax_clear_frontend_logs() {
         // Verificar permisos de administrador
@@ -552,7 +550,7 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: Inicializar progreso de búsqueda
+     * Inicializar progreso de búsqueda
      */
     private function init_search_progress($search_id, $profile_type = '', $fecha_inicio = '', $fecha_fin = '', $numero_documento = '') {
         // Obtener configuración de búsquedas activas
@@ -579,7 +577,7 @@ class CP_Frontend {
             'total_records' => 0,
             'start_time' => time(),
             'last_update' => time(),
-            // NUEVO: Almacenar parámetros de búsqueda
+            // Almacenar parámetros de búsqueda
             'search_params' => array(
                 'profile_type' => $profile_type,
                 'fecha_inicio' => $fecha_inicio,
@@ -606,14 +604,14 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: Obtener progreso de búsqueda
+     * Obtener progreso de búsqueda
      */
     private function get_search_progress($search_id) {
         return get_transient($search_id);
     }
     
     /**
-     * NUEVO: Actualizar progreso de búsqueda
+     * Actualizar progreso de búsqueda
      */
     private function update_search_progress($search_id, $updates) {
         $progress = get_transient($search_id);
@@ -661,7 +659,7 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: Iniciar búsqueda real con seguimiento de progreso - MEJORADO CON LOGS
+     * Iniciar búsqueda real con seguimiento de progreso
      */
     private function start_actual_search($search_id, $start_time = null) {
         if ($start_time === null) {
@@ -678,7 +676,7 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: Ejecutar siguiente paso de búsqueda - MEJORADO CON LOGS
+     * Ejecutar siguiente paso de búsqueda - MEJORADO CON LOGS
      */
     private function execute_next_search_step($search_id) {
         $progress = get_transient($search_id);
@@ -714,14 +712,14 @@ class CP_Frontend {
         $fecha_fin = $search_params['fecha_fin'];
         $numero_documento = $search_params['numero_documento'];
         
-        // NUEVO: Calcular tiempo de ejecución para logs
+        // Calcular tiempo de ejecución para logs
         $search_start_time = isset($progress['search_start_time']) ? $progress['search_start_time'] : microtime(true);
         if (!isset($progress['search_start_time'])) {
             $progress['search_start_time'] = $search_start_time;
             set_transient($search_id, $progress, 600);
         }
         
-        // CORREGIDO: Buscar siguiente fuente pendiente (no running)
+        // Buscar siguiente fuente pendiente (no running)
         $next_source = null;
         $pending_sources = array();
         $running_sources = array();
@@ -846,7 +844,7 @@ class CP_Frontend {
         if ($all_completed) {
             $execution_time = round((microtime(true) - $search_start_time), 3);
             
-            // NUEVO: Registrar búsqueda en logs con resultado final
+            // Registrar búsqueda en logs con resultado final
             if ($has_errors && $total_records === 0) {
                 // Todas las fuentes fallaron
                 $this->log_search_error('all_sources_failed', implode('; ', $error_messages), 
@@ -872,95 +870,36 @@ class CP_Frontend {
     }
     
     /**
-     * Obtener configuración de búsquedas
+     * Obtener configuración de búsquedas - ACTUALIZADO con APIs
      */
     private function get_search_configuration() {
         return array(
             'tvec' => array(
                 'active' => get_option('cp_tvec_active', true),
-                'method' => get_option('cp_tvec_method', 'database')
+                'method' => get_option('cp_tvec_method', 'database'),
+                'api_url_proveedores' => get_option('cp_tvec_api_url_proveedores', ''),
+                'api_url_entidades' => get_option('cp_tvec_api_url_entidades', ''),
+                'api_date_field' => get_option('cp_tvec_api_date_field', '')
             ),
             'secopi' => array(
                 'active' => get_option('cp_secopi_active', true),
-                'method' => get_option('cp_secopi_method', 'database')
+                'method' => get_option('cp_secopi_method', 'database'),
+                'api_url_proveedores' => get_option('cp_secopi_api_url_proveedores', ''),
+                'api_url_entidades' => get_option('cp_secopi_api_url_entidades', ''),
+                'api_date_field' => get_option('cp_secopi_api_date_field', '')
             ),
             'secopii' => array(
                 'active' => get_option('cp_secopii_active', true),
-                'method' => get_option('cp_secopii_method', 'database')
+                'method' => get_option('cp_secopii_method', 'database'),
+                'api_url_proveedores' => get_option('cp_secopii_api_url_proveedores', ''),
+                'api_url_entidades' => get_option('cp_secopii_api_url_entidades', ''),
+                'api_date_field' => get_option('cp_secopii_api_date_field', '')
             )
         );
     }
     
     /**
-     * MODIFICADO: Realizar búsquedas principales con seguimiento de progreso
-     */
-    private function perform_searches_with_progress($search_id, $profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
-        $results = array();
-        $total_results = 0;
-        
-        // Obtener configuración de búsquedas activas
-        $search_config = $this->get_search_configuration();
-        error_log("CP Frontend: Configuración de búsqueda: " . json_encode($search_config));
-        
-        // TVEC
-        if ($search_config['tvec']['active']) {
-            $this->update_source_progress($search_id, 'tvec', 'running', 0, __('Consultando TVEC...', 'consulta-procesos'));
-            
-            error_log("CP Frontend: Iniciando búsqueda TVEC");
-            $tvec_results = $this->search_tvec($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['tvec']['method']);
-            
-            if (!empty($tvec_results)) {
-                $results['tvec'] = $tvec_results;
-                $total_results += count($tvec_results);
-                error_log("CP Frontend: TVEC - " . count($tvec_results) . " resultados encontrados");
-                $this->update_source_progress($search_id, 'tvec', 'completed', 100, count($tvec_results) . ' resultados encontrados', count($tvec_results));
-            } else {
-                error_log("CP Frontend: TVEC - No se encontraron resultados");
-                $this->update_source_progress($search_id, 'tvec', 'completed', 100, __('Sin resultados', 'consulta-procesos'), 0);
-            }
-        }
-        
-        // SECOPI
-        if ($search_config['secopi']['active']) {
-            $this->update_source_progress($search_id, 'secopi', 'running', 0, __('Consultando SECOPI...', 'consulta-procesos'));
-            
-            error_log("CP Frontend: Iniciando búsqueda SECOPI");
-            $secopi_results = $this->search_secopi($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['secopi']['method']);
-            
-            if (!empty($secopi_results)) {
-                $results['secopi'] = $secopi_results;
-                $total_results += count($secopi_results);
-                error_log("CP Frontend: SECOPI - " . count($secopi_results) . " resultados encontrados");
-                $this->update_source_progress($search_id, 'secopi', 'completed', 100, count($secopi_results) . ' resultados encontrados', count($secopi_results));
-            } else {
-                error_log("CP Frontend: SECOPI - No se encontraron resultados");
-                $this->update_source_progress($search_id, 'secopi', 'completed', 100, __('Sin resultados', 'consulta-procesos'), 0);
-            }
-        }
-        
-        // SECOPII
-        if ($search_config['secopii']['active']) {
-            $this->update_source_progress($search_id, 'secopii', 'running', 0, __('Consultando SECOPII...', 'consulta-procesos'));
-            
-            error_log("CP Frontend: Iniciando búsqueda SECOPII");
-            $secopii_results = $this->search_secopii($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['secopii']['method']);
-            
-            if (!empty($secopii_results)) {
-                $results['secopii'] = $secopii_results;
-                $total_results += count($secopii_results);
-                error_log("CP Frontend: SECOPII - " . count($secopii_results) . " resultados encontrados");
-                $this->update_source_progress($search_id, 'secopii', 'completed', 100, count($secopii_results) . ' resultados encontrados', count($secopii_results));
-            } else {
-                error_log("CP Frontend: SECOPII - No se encontraron resultados");
-                $this->update_source_progress($search_id, 'secopii', 'completed', 100, __('Sin resultados', 'consulta-procesos'), 0);
-            }
-        }
-        
-        return $results;
-    }
-    
-    /**
-     * NUEVO: Actualizar progreso de una fuente específica
+     * Actualizar progreso de una fuente específica
      */
     private function update_source_progress($search_id, $source, $status, $progress, $message, $records_found = 0) {
         $current_progress = get_transient($search_id);
@@ -1034,62 +973,6 @@ class CP_Frontend {
     }
     
     /**
-     * MANTENER: Realizar búsquedas principales - ORIGINAL (sin modificar)
-     */
-    private function perform_searches($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
-        $results = array();
-        $total_results = 0;
-        
-        // Obtener configuración de búsquedas activas
-        $search_config = $this->get_search_configuration();
-        error_log("CP Frontend: Configuración de búsqueda: " . json_encode($search_config));
-        
-        // TVEC
-        if ($search_config['tvec']['active']) {
-            error_log("CP Frontend: Iniciando búsqueda TVEC");
-            $tvec_results = $this->search_tvec($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['tvec']['method']);
-            if (!empty($tvec_results)) {
-                $results['tvec'] = $tvec_results;
-                $total_results += count($tvec_results);
-                error_log("CP Frontend: TVEC - " . count($tvec_results) . " resultados encontrados");
-            } else {
-                error_log("CP Frontend: TVEC - No se encontraron resultados");
-            }
-        }
-        
-        // SECOPI
-        if ($search_config['secopi']['active']) {
-            error_log("CP Frontend: Iniciando búsqueda SECOPI");
-            $secopi_results = $this->search_secopi($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['secopi']['method']);
-            if (!empty($secopi_results)) {
-                $results['secopi'] = $secopi_results;
-                $total_results += count($secopi_results);
-                error_log("CP Frontend: SECOPI - " . count($secopi_results) . " resultados encontrados");
-            } else {
-                error_log("CP Frontend: SECOPI - No se encontraron resultados");
-            }
-        }
-        
-        // SECOPII
-        if ($search_config['secopii']['active']) {
-            error_log("CP Frontend: Iniciando búsqueda SECOPII");
-            $secopii_results = $this->search_secopii($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $search_config['secopii']['method']);
-            if (!empty($secopii_results)) {
-                $results['secopii'] = $secopii_results;
-                $total_results += count($secopii_results);
-                error_log("CP Frontend: SECOPII - " . count($secopii_results) . " resultados encontrados");
-            } else {
-                error_log("CP Frontend: SECOPII - No se encontraron resultados");
-            }
-        }
-        
-        // Registrar búsqueda en el log
-        $this->log_frontend_search($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $total_results);
-        
-        return $results;
-    }
-    
-    /**
      * Buscar en tabla TVEC
      */
     private function search_tvec($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $method) {
@@ -1123,7 +1006,301 @@ class CP_Frontend {
     }
     
     /**
-     * Buscar TVEC en base de datos - CORREGIDO
+     * NUEVO: Buscar TVEC vía API
+     */
+    private function search_tvec_api($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
+        $config = $this->get_search_configuration()['tvec'];
+        
+        // Obtener URL según el perfil
+        $api_url = $profile_type === 'entidades' 
+            ? $config['api_url_entidades'] 
+            : $config['api_url_proveedores'];
+            
+        if (empty($api_url)) {
+            error_log('CP Frontend: URL de API TVEC no configurada para perfil: ' . $profile_type);
+            return array();
+        }
+        
+        // Construir URL completa
+        $full_url = $api_url . urlencode($numero_documento);
+        
+        error_log("CP Frontend: Consultando TVEC API - URL: {$full_url}");
+        
+        try {
+            // Realizar petición HTTP
+            $response = wp_remote_get($full_url, array(
+                'timeout' => 30,
+                'headers' => array(
+                    'Accept' => 'application/json',
+                    'User-Agent' => 'WordPress/ConsultaProcesos'
+                )
+            ));
+            
+            if (is_wp_error($response)) {
+                error_log('CP Frontend: Error en petición TVEC API - ' . $response->get_error_message());
+                return array();
+            }
+            
+            $response_code = wp_remote_retrieve_response_code($response);
+            $response_body = wp_remote_retrieve_body($response);
+            
+            if ($response_code !== 200) {
+                error_log("CP Frontend: Respuesta HTTP no exitosa de TVEC API - Código: {$response_code}");
+                return array();
+            }
+            
+            $data = json_decode($response_body, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                error_log('CP Frontend: Error decodificando JSON de TVEC API - ' . json_last_error_msg());
+                return array();
+            }
+            
+            if (!is_array($data)) {
+                error_log('CP Frontend: Respuesta de TVEC API no es un array');
+                return array();
+            }
+            
+            // Filtrar por fechas si se especifica campo de fecha
+            if (!empty($config['api_date_field']) && !empty($fecha_inicio) && !empty($fecha_fin)) {
+                $data = $this->filter_api_results_by_date($data, $config['api_date_field'], $fecha_inicio, $fecha_fin);
+            }
+            
+            // Limitar resultados
+            $max_results = get_option('cp_max_results_per_source', 1000);
+            if (count($data) > $max_results) {
+                $data = array_slice($data, 0, $max_results);
+            }
+            
+            error_log("CP Frontend: TVEC API - " . count($data) . " resultados obtenidos y filtrados");
+            
+            return $data;
+            
+        } catch (Exception $e) {
+            error_log('CP Frontend: Excepción en TVEC API - ' . $e->getMessage());
+            return array();
+        }
+    }
+    
+    /**
+     * NUEVO: Buscar SECOPI vía API
+     */
+    private function search_secopi_api($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
+        $config = $this->get_search_configuration()['secopi'];
+        
+        // Obtener URL según el perfil
+        $api_url = $profile_type === 'entidades' 
+            ? $config['api_url_entidades'] 
+            : $config['api_url_proveedores'];
+            
+        if (empty($api_url)) {
+            error_log('CP Frontend: URL de API SECOPI no configurada para perfil: ' . $profile_type);
+            return array();
+        }
+        
+        // Construir URL completa
+        $full_url = $api_url . urlencode($numero_documento);
+        
+        error_log("CP Frontend: Consultando SECOPI API - URL: {$full_url}");
+        
+        try {
+            // Realizar petición HTTP
+            $response = wp_remote_get($full_url, array(
+                'timeout' => 30,
+                'headers' => array(
+                    'Accept' => 'application/json',
+                    'User-Agent' => 'WordPress/ConsultaProcesos'
+                )
+            ));
+            
+            if (is_wp_error($response)) {
+                error_log('CP Frontend: Error en petición SECOPI API - ' . $response->get_error_message());
+                return array();
+            }
+            
+            $response_code = wp_remote_retrieve_response_code($response);
+            $response_body = wp_remote_retrieve_body($response);
+            
+            if ($response_code !== 200) {
+                error_log("CP Frontend: Respuesta HTTP no exitosa de SECOPI API - Código: {$response_code}");
+                return array();
+            }
+            
+            $data = json_decode($response_body, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                error_log('CP Frontend: Error decodificando JSON de SECOPI API - ' . json_last_error_msg());
+                return array();
+            }
+            
+            if (!is_array($data)) {
+                error_log('CP Frontend: Respuesta de SECOPI API no es un array');
+                return array();
+            }
+            
+            // Filtrar por fechas si se especifica campo de fecha
+            if (!empty($config['api_date_field']) && !empty($fecha_inicio) && !empty($fecha_fin)) {
+                $data = $this->filter_api_results_by_date($data, $config['api_date_field'], $fecha_inicio, $fecha_fin);
+            }
+            
+            // Limitar resultados
+            $max_results = get_option('cp_max_results_per_source', 1000);
+            if (count($data) > $max_results) {
+                $data = array_slice($data, 0, $max_results);
+            }
+            
+            error_log("CP Frontend: SECOPI API - " . count($data) . " resultados obtenidos y filtrados");
+            
+            return $data;
+            
+        } catch (Exception $e) {
+            error_log('CP Frontend: Excepción en SECOPI API - ' . $e->getMessage());
+            return array();
+        }
+    }
+    
+    /**
+     * NUEVO: Buscar SECOPII vía API
+     */
+    private function search_secopii_api($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
+        $config = $this->get_search_configuration()['secopii'];
+        
+        // Obtener URL según el perfil
+        $api_url = $profile_type === 'entidades' 
+            ? $config['api_url_entidades'] 
+            : $config['api_url_proveedores'];
+            
+        if (empty($api_url)) {
+            error_log('CP Frontend: URL de API SECOPII no configurada para perfil: ' . $profile_type);
+            return array();
+        }
+        
+        // Construir URL completa
+        $full_url = $api_url . urlencode($numero_documento);
+        
+        error_log("CP Frontend: Consultando SECOPII API - URL: {$full_url}");
+        
+        try {
+            // Realizar petición HTTP
+            $response = wp_remote_get($full_url, array(
+                'timeout' => 30,
+                'headers' => array(
+                    'Accept' => 'application/json',
+                    'User-Agent' => 'WordPress/ConsultaProcesos'
+                )
+            ));
+            
+            if (is_wp_error($response)) {
+                error_log('CP Frontend: Error en petición SECOPII API - ' . $response->get_error_message());
+                return array();
+            }
+            
+            $response_code = wp_remote_retrieve_response_code($response);
+            $response_body = wp_remote_retrieve_body($response);
+            
+            if ($response_code !== 200) {
+                error_log("CP Frontend: Respuesta HTTP no exitosa de SECOPII API - Código: {$response_code}");
+                return array();
+            }
+            
+            $data = json_decode($response_body, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                error_log('CP Frontend: Error decodificando JSON de SECOPII API - ' . json_last_error_msg());
+                return array();
+            }
+            
+            if (!is_array($data)) {
+                error_log('CP Frontend: Respuesta de SECOPII API no es un array');
+                return array();
+            }
+            
+            // Filtrar por fechas si se especifica campo de fecha
+            if (!empty($config['api_date_field']) && !empty($fecha_inicio) && !empty($fecha_fin)) {
+                $data = $this->filter_api_results_by_date($data, $config['api_date_field'], $fecha_inicio, $fecha_fin);
+            }
+            
+            // Limitar resultados
+            $max_results = get_option('cp_max_results_per_source', 1000);
+            if (count($data) > $max_results) {
+                $data = array_slice($data, 0, $max_results);
+            }
+            
+            error_log("CP Frontend: SECOPII API - " . count($data) . " resultados obtenidos y filtrados");
+            
+            return $data;
+            
+        } catch (Exception $e) {
+            error_log('CP Frontend: Excepción en SECOPII API - ' . $e->getMessage());
+            return array();
+        }
+    }
+    
+    /**
+     * NUEVO: Filtrar resultados de API por fecha
+     */
+    private function filter_api_results_by_date($data, $date_field, $fecha_inicio, $fecha_fin) {
+        if (empty($date_field) || empty($data)) {
+            return $data;
+        }
+        
+        $filtered = array();
+        $inicio_timestamp = strtotime($fecha_inicio);
+        $fin_timestamp = strtotime($fecha_fin);
+        
+        foreach ($data as $item) {
+            if (!isset($item[$date_field])) {
+                continue; // Saltar si no tiene el campo de fecha
+            }
+            
+            $item_date = $item[$date_field];
+            
+            // Intentar parsear diferentes formatos de fecha
+            $item_timestamp = false;
+            
+            // Formatos comunes: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, ISO 8601, etc.
+            $date_formats = array(
+                'Y-m-d',
+                'Y-m-d H:i:s',
+                'd/m/Y',
+                'm/d/Y',
+                'Y-m-d\TH:i:s',
+                'Y-m-d\TH:i:s\Z',
+                'Y-m-d\TH:i:s.u\Z'
+            );
+            
+            foreach ($date_formats as $format) {
+                $parsed_date = DateTime::createFromFormat($format, $item_date);
+                if ($parsed_date !== false) {
+                    $item_timestamp = $parsed_date->getTimestamp();
+                    break;
+                }
+            }
+            
+            // Si no se pudo parsear con formatos específicos, intentar strtotime
+            if ($item_timestamp === false) {
+                $item_timestamp = strtotime($item_date);
+            }
+            
+            // Si aún no se pudo parsear, saltar este elemento
+            if ($item_timestamp === false) {
+                error_log("CP Frontend: No se pudo parsear fecha: {$item_date}");
+                continue;
+            }
+            
+            // Verificar si está en el rango
+            if ($item_timestamp >= $inicio_timestamp && $item_timestamp <= $fin_timestamp) {
+                $filtered[] = $item;
+            }
+        }
+        
+        error_log("CP Frontend: Filtrado por fechas - Original: " . count($data) . ", Filtrado: " . count($filtered));
+        
+        return $filtered;
+    }
+    
+    /**
+     * Buscar TVEC en base de datos (código existente sin cambios)
      */
     private function search_tvec_database($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
         if (!$this->db) {
@@ -1161,7 +1338,7 @@ class CP_Frontend {
     }
     
     /**
-     * Buscar SECOPI en base de datos - CORREGIDO
+     * Buscar SECOPI en base de datos (código existente sin cambios)
      */
     private function search_secopi_database($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
         if (!$this->db) {
@@ -1199,7 +1376,7 @@ class CP_Frontend {
     }
     
     /**
-     * Buscar SECOPII en base de datos - CORREGIDO
+     * Buscar SECOPII en base de datos (código existente sin cambios)
      */
     private function search_secopii_database($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
         if (!$this->db) {
@@ -1237,6 +1414,8 @@ class CP_Frontend {
             return array();
         }
     }
+    
+    // RESTO DE MÉTODOS SIN CAMBIOS (execute_stored_procedure, stored_procedures_available, query_*_fallback, etc.)
     
     /**
      * Ejecutar stored procedure - COMPLETAMENTE CORREGIDO
@@ -1325,7 +1504,7 @@ class CP_Frontend {
     }
     
     /**
-     * Verificar si los stored procedures están disponibles - MEJORADO
+     * Verificar si los stored procedures están disponibles
      */
     private function stored_procedures_available() {
         // Verificar configuración
@@ -1444,7 +1623,7 @@ class CP_Frontend {
     }
     
     /**
-     * Ejecutar consulta con manejo de errores - MEJORADO
+     * Ejecutar consulta con manejo de errores
      */
     private function execute_query_with_error_handling($connection, $method, $sql, $params, $source_name) {
         try {
@@ -1499,31 +1678,7 @@ class CP_Frontend {
     }
     
     /**
-     * Buscar TVEC vía API (placeholder)
-     */
-    private function search_tvec_api($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
-        // Placeholder para API TVEC
-        return array();
-    }
-    
-    /**
-     * Buscar SECOPI vía API (placeholder)
-     */
-    private function search_secopi_api($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
-        // Placeholder para API SECOPI
-        return array();
-    }
-    
-    /**
-     * Buscar SECOPII vía API (placeholder)
-     */
-    private function search_secopii_api($profile_type, $fecha_inicio, $fecha_fin, $numero_documento) {
-        // Placeholder para API SECOPII
-        return array();
-    }
-    
-    /**
-     * MEJORADO: Registrar búsqueda exitosa en el log del frontend
+     * Registrar búsqueda exitosa en el log del frontend
      */
     private function log_frontend_search($profile_type, $fecha_inicio, $fecha_fin, $numero_documento, $results_count, $execution_time = null, $status = 'success') {
         global $wpdb;
@@ -1575,7 +1730,7 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: Registrar error en el log del frontend
+     * Registrar error en el log del frontend
      */
     private function log_search_error($error_type, $error_message, $profile_type = '', $fecha_inicio = '', $fecha_fin = '', $numero_documento = '', $start_time = null, $execution_time = null) {
         global $wpdb;
@@ -1684,17 +1839,6 @@ class CP_Frontend {
     }
     
     /**
-     * Contar total de registros
-     */
-    private function count_total_records($results) {
-        $total = 0;
-        foreach ($results as $source => $records) {
-            $total += count($records);
-        }
-        return $total;
-    }
-    
-    /**
      * Sistema de caché para consultas
      */
     private function get_cached_results($cache_key) {
@@ -1737,7 +1881,7 @@ class CP_Frontend {
     }
     
     /**
-     * NUEVO: Obtener estadísticas de logs para el admin
+     * Obtener estadísticas de logs para el admin
      */
     public function get_logs_stats() {
         global $wpdb;

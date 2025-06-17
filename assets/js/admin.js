@@ -5,7 +5,7 @@ jQuery(document).ready(function($) {
     var queryResults = null;
     var savedQueries = [];
     
-    // NUEVO: Variables para logs del frontend
+    // Variables para logs del frontend
     var currentPage = 1;
     var pageSize = 50;
     var currentFilters = {};
@@ -19,43 +19,376 @@ jQuery(document).ready(function($) {
         initConfigPage();
         initQueryPage();
         initSettingsPage();
-        initLogsPage(); // Nueva función para logs
+        initLogsPage();
         initModals();
         bindGlobalEvents();
     }
     
     // ========================================
-    // NUEVA PÁGINA DE LOGS - MEJORADA
+    // PÁGINA DE CONFIGURACIÓN DE PARÁMETROS - ACTUALIZADA
     // ========================================
     
-    function initLogsPage() {
-        //console.log('CP: Inicializando página de logs...');
-        
+    function initSettingsPage() {
         // Verificar que estamos en la página correcta
-        if (window.location.href.indexOf('consulta-procesos-logs') === -1) {
-            //console.log('CP: No estamos en la página de logs, saltando inicialización');
+        if (window.location.href.indexOf('consulta-procesos-settings') === -1) {
             return;
         }
         
-        //console.log('CP: Configurando eventos de la página de logs...');
+        console.log('CP: Inicializando página de configuración de parámetros...');
+        
+        // Validación específica para la página de parámetros
+        var $settingsForm = $('#cp-settings-form');
+        if ($settingsForm.length > 0) {
+            $settingsForm.on('submit', function(e) {
+                if (!validateSettingsForm()) {
+                    e.preventDefault();
+                    return false;
+                }
+                return true;
+            });
+        }
+        
+        // NUEVO: Funcionalidad para mostrar/ocultar configuración de API
+        initApiConfiguration();
+        
+        // Alternar habilitación de método según activación
+        $('input[name^="cp_"][name$="_active"]').on('change', function() {
+            var baseName = $(this).attr('name').replace('_active', '');
+            var methodRadios = $('input[name="' + baseName + '_method"]');
+            
+            if ($(this).is(':checked')) {
+                methodRadios.prop('disabled', false);
+                methodRadios.closest('fieldset').removeClass('disabled');
+            } else {
+                methodRadios.prop('disabled', true);
+                methodRadios.closest('fieldset').addClass('disabled');
+                // También ocultar configuración de API si se desactiva
+                $('#cp-' + baseName.replace('cp_', '') + '-api-config').slideUp(300);
+            }
+        });
+        
+        // Inicializar estado de métodos
+        $('input[name^="cp_"][name$="_active"]').trigger('change');
+        
+        // Preview en tiempo real de términos
+        if (typeof tinymce !== 'undefined') {
+            // Si TinyMCE está disponible, escuchar cambios
+            $(document).on('tinymce-editor-init', function(event, editor) {
+                if (editor.id === 'cp_terms_content') {
+                    editor.on('change keyup', function() {
+                        updateTermsPreview();
+                    });
+                }
+            });
+        }
+        
+        // Fallback para textarea normal
+        $('#cp_terms_content').on('input', function() {
+            updateTermsPreview();
+        });
+        
+        // NUEVO: Funcionalidad de caché
+        initCacheControls();
+    }
+    
+    /**
+     * NUEVO: Inicializar configuración de API
+     */
+    function initApiConfiguration() {
+        console.log('CP: Inicializando configuración de API...');
+        
+        // Función para mostrar/ocultar configuración de API
+        function toggleApiConfig() {
+            $('.cp-method-radio').each(function() {
+                var target = $(this).data('target');
+                var method = $(this).val();
+                var apiConfig = $('#cp-' + target + '-api-config');
+                
+                if ($(this).is(':checked') && method === 'api') {
+                    apiConfig.slideDown(300);
+                    // Marcar campos como requeridos cuando API está seleccionada
+                    apiConfig.find('input[type="url"], input[type="text"]').attr('required', true);
+                } else if ($(this).is(':checked') && method === 'database') {
+                    apiConfig.slideUp(300);
+                    // Quitar requerimiento cuando no es API
+                    apiConfig.find('input[type="url"], input[type="text"]').attr('required', false);
+                }
+            });
+        }
+        
+        // Inicializar estado al cargar la página
+        toggleApiConfig();
+        
+        // Escuchar cambios en los radio buttons
+        $('.cp-method-radio').on('change', function() {
+            toggleApiConfig();
+            
+            // Log del cambio
+            var target = $(this).data('target');
+            var method = $(this).val();
+            console.log('CP: Método cambiado para ' + target + ': ' + method);
+        });
+        
+        // Validación de URLs en tiempo real
+        $('input[type="url"]').on('blur', function() {
+            validateApiUrl($(this));
+        });
+        
+        // Validación de campos de fecha
+        $('input[name$="_api_date_field"]').on('blur', function() {
+            validateDateField($(this));
+        });
+    }
+    
+    /**
+     * NUEVO: Validar URL de API
+     */
+    function validateApiUrl($field) {
+        var url = $field.val().trim();
+        
+        // Limpiar errores previos
+        $field.removeClass('error-field');
+        $field.siblings('.field-error').remove();
+        
+        if (url === '') {
+            // Campo vacío - solo marcar como error si es requerido
+            if ($field.attr('required')) {
+                showFieldError($field, 'URL requerida cuando API está seleccionada');
+            }
+            return false;
+        }
+        
+        // Validar formato de URL
+        if (!url.match(/^https?:\/\/.+/)) {
+            showFieldError($field, 'URL debe comenzar con http:// o https://');
+            return false;
+        }
+        
+        // Validar que termine con parámetro
+        if (!url.includes('=')) {
+            showFieldError($field, 'URL debe terminar con un parámetro (ej: documento_proveedor=)');
+            return false;
+        }
+        
+        // Validar que termine con =
+        if (!url.endsWith('=')) {
+            showFieldError($field, 'URL debe terminar con = para agregar el número de documento');
+            return false;
+        }
+        
+        // URL válida
+        $field.addClass('valid-field');
+        return true;
+    }
+    
+    /**
+     * NUEVO: Validar campo de fecha
+     */
+    function validateDateField($field) {
+        var value = $field.val().trim();
+        
+        // Limpiar errores previos
+        $field.removeClass('error-field');
+        $field.siblings('.field-error').remove();
+        
+        if (value === '') {
+            // Campo vacío - solo advertir
+            showFieldWarning($field, 'Campo de fecha vacío - no se aplicarán filtros de fecha');
+            return true;
+        }
+        
+        // Validar que no contenga espacios o caracteres especiales problemáticos
+        if (!value.match(/^[a-zA-Z0-9_-]+$/)) {
+            showFieldError($field, 'Campo debe contener solo letras, números, guiones y guiones bajos');
+            return false;
+        }
+        
+        // Campo válido
+        $field.addClass('valid-field');
+        return true;
+    }
+    
+    /**
+     * NUEVO: Mostrar error en campo
+     */
+    function showFieldError($field, message) {
+        $field.addClass('error-field');
+        $field.after('<span class="field-error" style="color: #d63638; font-size: 12px; display: block; margin-top: 5px;">' + message + '</span>');
+    }
+    
+    /**
+     * NUEVO: Mostrar advertencia en campo
+     */
+    function showFieldWarning($field, message) {
+        $field.addClass('warning-field');
+        $field.after('<span class="field-warning" style="color: #dba617; font-size: 12px; display: block; margin-top: 5px;">' + message + '</span>');
+    }
+    
+    /**
+     * NUEVO: Validar formulario de configuración completo
+     */
+    function validateSettingsForm() {
+        var isValid = true;
+        var errors = [];
+        
+        // Validar configuraciones de API para sistemas activos
+        $('.cp-method-radio:checked').each(function() {
+            var method = $(this).val();
+            var target = $(this).data('target');
+            
+            if (method === 'api') {
+                var systemActive = $('input[name="cp_' + target + '_active"]').is(':checked');
+                
+                if (systemActive) {
+                    // Validar URLs de API
+                    var urlProveedores = $('#cp_' + target + '_api_url_proveedores');
+                    var urlEntidades = $('#cp_' + target + '_api_url_entidades');
+                    
+                    if (!validateApiUrl(urlProveedores)) {
+                        errors.push('URL de API para proveedores de ' + target.toUpperCase() + ' es inválida');
+                        isValid = false;
+                    }
+                    
+                    if (!validateApiUrl(urlEntidades)) {
+                        errors.push('URL de API para entidades de ' + target.toUpperCase() + ' es inválida');
+                        isValid = false;
+                    }
+                    
+                    // Validar campo de fecha
+                    var dateField = $('#cp_' + target + '_api_date_field');
+                    if (!validateDateField(dateField)) {
+                        errors.push('Campo de fecha de ' + target.toUpperCase() + ' es inválido');
+                        isValid = false;
+                    }
+                }
+            }
+        });
+        
+        // Validar configuraciones de rendimiento
+        var cacheEnabled = $('#cp_enable_cache').is(':checked');
+        if (cacheEnabled) {
+            var cacheDuration = parseInt($('#cp_cache_duration').val());
+            if (isNaN(cacheDuration) || cacheDuration < 60 || cacheDuration > 3600) {
+                errors.push('Duración de caché debe estar entre 60 y 3600 segundos');
+                isValid = false;
+            }
+        }
+        
+        var maxResults = parseInt($('#cp_max_results_per_source').val());
+        if (isNaN(maxResults) || maxResults < 100 || maxResults > 5000) {
+            errors.push('Máximo de resultados debe estar entre 100 y 5000');
+            isValid = false;
+        }
+        
+        // Mostrar errores si los hay
+        if (!isValid) {
+            alert('Por favor corrija los siguientes errores:\n\n• ' + errors.join('\n• '));
+        }
+        
+        return isValid;
+    }
+    
+    /**
+     * NUEVO: Inicializar controles de caché
+     */
+    function initCacheControls() {
+        // Limpiar caché
+        $('#cp-clear-cache').on('click', function() {
+            var button = $(this);
+            var originalText = button.html();
+            
+            if (!confirm('¿Está seguro de que desea limpiar todo el caché de consultas?')) {
+                return;
+            }
+            
+            button.prop('disabled', true).html('<span class="spinner is-active"></span> Limpiando...');
+            
+            ajaxRequest('cp_clear_cache', {}, function(response) {
+                button.prop('disabled', false).html(originalText);
+                
+                if (response.success) {
+                    alert('Caché limpiado exitosamente');
+                    // Actualizar estadísticas si están visibles
+                    if ($('#cp-cache-info').is(':visible')) {
+                        $('#cp-cache-stats').trigger('click');
+                    }
+                } else {
+                    alert('Error al limpiar caché: ' + (response.data ? response.data.message : 'Error desconocido'));
+                }
+            }, function() {
+                button.prop('disabled', false).html(originalText);
+                alert('Error de comunicación al limpiar caché');
+            });
+        });
+        
+        // Ver estadísticas de caché
+        $('#cp-cache-stats').on('click', function() {
+            var button = $(this);
+            var originalText = button.html();
+            var infoDiv = $('#cp-cache-info');
+            
+            button.prop('disabled', true).html('<span class="spinner is-active"></span> Cargando...');
+            
+            ajaxRequest('cp_get_cache_stats', {}, function(response) {
+                button.prop('disabled', false).html(originalText);
+                
+                if (response.success) {
+                    var stats = response.data;
+                    var html = '<div class="cp-cache-stats" style="background: #f8f9fa; padding: 15px; border-radius: 4px; margin-top: 10px;">';
+                    html += '<h4 style="margin-top: 0;">Estadísticas de Caché</h4>';
+                    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">';
+                    
+                    html += '<div><strong>Consultas en caché:</strong><br><span style="font-size: 24px; color: #0073aa;">' + stats.cached_queries + '</span></div>';
+                    html += '<div><strong>Caché habilitado:</strong><br><span style="font-size: 18px; color: ' + (stats.cache_enabled ? '#00a32a' : '#d63638') + ';">' + (stats.cache_enabled ? 'Sí' : 'No') + '</span></div>';
+                    html += '<div><strong>Duración:</strong><br><span style="font-size: 18px; color: #666;">' + stats.cache_duration + ' segundos</span></div>';
+                    
+                    html += '</div>';
+                    html += '<button type="button" class="button button-secondary" style="margin-top: 10px;" onclick="$(this).closest(\'.cp-cache-stats\').parent().slideUp();">Cerrar</button>';
+                    html += '</div>';
+                    
+                    infoDiv.html(html).slideDown();
+                } else {
+                    alert('Error al obtener estadísticas: ' + (response.data ? response.data.message : 'Error desconocido'));
+                }
+            }, function() {
+                button.prop('disabled', false).html(originalText);
+                alert('Error de comunicación al obtener estadísticas');
+            });
+        });
+    }
+    
+    function updateTermsPreview() {
+        // Esta función podría mostrar una vista previa de los términos
+        // Por ahora, solo un placeholder
+        console.log('CP: Términos actualizados');
+    }
+    
+    // ========================================
+    // PÁGINA DE LOGS - MEJORADA
+    // ========================================
+    
+    function initLogsPage() {
+        // Verificar que estamos en la página correcta
+        if (window.location.href.indexOf('consulta-procesos-logs') === -1) {
+            return;
+        }
+        
+        console.log('CP: Inicializando página de logs...');
         
         // Probar stored procedure
         $('#test-stored-procedure').on('click', function(e) {
             e.preventDefault();
-            //console.log('CP: Botón test stored procedure clickeado');
             testStoredProcedure();
         });
         
         // Ejecutar consulta de admin
         $('#execute-admin-query').on('click', function(e) {
             e.preventDefault();
-            //console.log('CP: Botón execute admin query clickeado');
             executeAdminQuery();
         });
         
         // Limpiar consulta de admin
         $('#clear-admin-query').on('click', function() {
-            //console.log('CP: Limpiando consulta admin');
             $('#admin-sql-query').val('').focus();
             $('#admin-query-results').html('');
         });
@@ -63,54 +396,47 @@ jQuery(document).ready(function($) {
         // Actualizar logs del sistema
         $('#refresh-logs').on('click', function(e) {
             e.preventDefault();
-            //console.log('CP: Refrescando logs del sistema');
             refreshSystemLogs();
         });
         
         // Limpiar logs del sistema
         $('#clear-logs').on('click', function(e) {
             e.preventDefault();
-            //console.log('CP: Limpiando logs del sistema');
             if (confirm('¿Estás seguro de que quieres limpiar todos los logs del sistema?')) {
                 clearSystemLogs();
             }
         });
         
-        // NUEVO: Eventos para logs del frontend
+        // Eventos para logs del frontend
         $('#refresh-frontend-logs').on('click', function(e) {
             e.preventDefault();
-            console.log('CP: Refrescando logs del frontend');
             refreshFrontendLogs();
         });
         
-        // NUEVO: Limpiar logs del frontend
+        // Limpiar logs del frontend
         $('#clear-frontend-logs').on('click', function(e) {
             e.preventDefault();
-            console.log('CP: Solicitando limpiar logs del frontend');
             if (confirm('¿Estás seguro de que quieres limpiar todos los logs de búsquedas del frontend? Esta acción no se puede deshacer.')) {
                 clearFrontendLogs();
             }
         });
         
-        // NUEVO: Actualizar estadísticas del frontend
+        // Actualizar estadísticas del frontend
         $('#refresh-frontend-stats').on('click', function(e) {
             e.preventDefault();
-            console.log('CP: Refrescando estadísticas del frontend');
             refreshFrontendStats();
         });
         
-        // NUEVO: Filtros de logs
+        // Filtros de logs
         $('#apply-filters').on('click', function() {
-            console.log('CP: Aplicando filtros');
             applyLogsFilters();
         });
         
         $('#clear-filters').on('click', function() {
-            console.log('CP: Limpiando filtros');
             clearLogsFilters();
         });
         
-        // NUEVO: Paginación
+        // Paginación
         $('#prev-page').on('click', function() {
             if (currentPage > 1) {
                 currentPage--;
@@ -129,25 +455,14 @@ jQuery(document).ready(function($) {
             refreshFrontendLogs();
         });
         
-        // NUEVO: Filtros en tiempo real
+        // Filtros en tiempo real
         $('#filter-status, #filter-profile, #filter-date').on('change', function() {
             currentPage = 1;
             refreshFrontendLogs();
         });
         
-        // Verificar que los elementos existen
-        //console.log('CP: Elementos encontrados:', {
-            //'test-stored-procedure': $('#test-stored-procedure').length,
-            //'execute-admin-query': $('#execute-admin-query').length,
-            //'refresh-logs': $('#refresh-logs').length,
-            //'clear-logs': $('#clear-logs').length,
-            //'refresh-frontend-logs': $('#refresh-frontend-logs').length,
-            //'clear-frontend-logs': $('#clear-frontend-logs').length
-        //});
-        
         // Auto-cargar datos si estamos en la página de logs
         setTimeout(function() {
-            //console.log('CP: Auto-cargando datos de logs...');
             refreshSystemLogs();
             refreshFrontendLogs();
             refreshFrontendStats();
@@ -155,23 +470,13 @@ jQuery(document).ready(function($) {
     }
     
     function testStoredProcedure() {
-        console.log('CP: Iniciando test de stored procedure...');
-        
         var spName = $('#sp-name').val();
         var param1 = $('#sp-param1').val();
         var param2 = $('#sp-param2').val();
         var param3 = $('#sp-param3').val();
         
-        console.log('CP: Parámetros del SP:', {
-            sp_name: spName,
-            param1: param1,
-            param2: param2,
-            param3: param3
-        });
-        
         if (!spName || !param1 || !param2 || !param3) {
             alert('Por favor, completa todos los campos');
-            console.log('CP: Faltan campos requeridos');
             return;
         }
         
@@ -181,27 +486,21 @@ jQuery(document).ready(function($) {
         button.prop('disabled', true).html('<span class="spinner is-active"></span> Ejecutando...');
         $('#sp-results').html('<div class="loading">Ejecutando stored procedure...</div>');
         
-        //console.log('CP: Enviando petición AJAX para test SP...');
-        
         ajaxRequest('cp_test_stored_procedure', {
             sp_name: spName,
             param1: param1,
             param2: param2,
             param3: param3
         }, function(response) {
-            console.log('CP: Respuesta del test SP:', response);
             button.prop('disabled', false).html(originalText);
             
             if (response.success) {
-                console.log('CP: Test SP exitoso');
                 displayStoredProcedureResults(response.data);
             } else {
-                console.log('CP: Test SP falló:', response.data);
                 var errorMsg = response.data ? response.data.message : 'Error desconocido';
                 $('#sp-results').html('<div class="error"><strong>Error:</strong> ' + errorMsg + '</div>');
             }
         }, function(xhr, status, error) {
-            console.error('CP: Error de comunicación en test SP:', xhr, status, error);
             button.prop('disabled', false).html(originalText);
             $('#sp-results').html('<div class="error">Error de comunicación con el servidor: ' + error + '</div>');
         });
@@ -322,8 +621,6 @@ jQuery(document).ready(function($) {
     }
     
     function refreshSystemLogs() {
-        //console.log('CP: Refrescando logs del sistema...');
-        
         var button = $('#refresh-logs');
         var originalText = button.html();
         
@@ -331,7 +628,6 @@ jQuery(document).ready(function($) {
         $('#system-logs').html('<div class="loading">Cargando logs...</div>');
         
         ajaxRequest('cp_get_system_logs', {}, function(response) {
-            //console.log('CP: Respuesta de logs del sistema:', response);
             button.prop('disabled', false).html(originalText);
             
             if (response.success) {
@@ -341,13 +637,10 @@ jQuery(document).ready(function($) {
                 if (response.data.file_size) {
                     $('.logs-info').text('Archivo: debug.log (' + formatBytes(response.data.file_size) + ')');
                 }
-                console.log('CP: Logs del sistema cargados correctamente');
             } else {
                 $('#system-logs').text('Error al cargar logs: ' + (response.data ? response.data.message : 'Error desconocido'));
-                console.log('CP: Error cargando logs del sistema:', response.data);
             }
         }, function(xhr, status, error) {
-            console.error('CP: Error de comunicación al cargar logs del sistema:', xhr, status, error);
             button.prop('disabled', false).html(originalText);
             $('#system-logs').text('Error de comunicación: ' + error);
         });
@@ -374,10 +667,8 @@ jQuery(document).ready(function($) {
         });
     }
     
-    // NUEVO: Refrescar logs del frontend
+    // Refrescar logs del frontend
     function refreshFrontendLogs() {
-        console.log('CP: Refrescando logs del frontend...');
-        
         var button = $('#refresh-frontend-logs');
         var originalText = button.html();
         
@@ -394,7 +685,6 @@ jQuery(document).ready(function($) {
         };
         
         ajaxRequest('cp_get_frontend_logs', filters, function(response) {
-            console.log('CP: Respuesta de logs del frontend:', response);
             button.prop('disabled', false).html(originalText);
             
             if (response.success) {
@@ -403,16 +693,14 @@ jQuery(document).ready(function($) {
                 updatePagination(response.data);
             } else {
                 $('#frontend-logs').html('<div class="no-logs-message"><span class="dashicons dashicons-warning"></span><br>Error al cargar logs del frontend</div>');
-                console.error('CP: Error cargando logs del frontend:', response.data);
             }
         }, function(xhr, status, error) {
-            console.error('CP: Error de comunicación al cargar logs del frontend:', xhr, status, error);
             button.prop('disabled', false).html(originalText);
             $('#frontend-logs').html('<div class="no-logs-message"><span class="dashicons dashicons-warning"></span><br>Error de comunicación</div>');
         });
     }
     
-    // NUEVO: Mostrar logs del frontend
+    // Mostrar logs del frontend
     function displayFrontendLogs(data) {
         var html = '';
         
@@ -485,7 +773,7 @@ jQuery(document).ready(function($) {
         $('#frontend-logs-count').text('Total: ' + (data.stats ? data.stats.total : 0) + ' búsquedas');
     }
     
-    // NUEVO: Actualizar paginación
+    // Actualizar paginación
     function updatePagination(data) {
         if (!data.logs || data.logs.length === 0) {
             $('#logs-pagination').hide();
@@ -502,17 +790,14 @@ jQuery(document).ready(function($) {
         $('#pagination-info').text('Página ' + currentPage + ' de ' + totalPages);
     }
     
-    // NUEVO: Limpiar logs del frontend
+    // Limpiar logs del frontend
     function clearFrontendLogs() {
-        console.log('CP: Iniciando limpieza de logs del frontend...');
-        
         var button = $('#clear-frontend-logs');
         var originalText = button.html();
         
         button.prop('disabled', true).html('<span class="spinner is-active"></span> Limpiando...');
         
         ajaxRequest('cp_clear_frontend_logs', {}, function(response) {
-            console.log('CP: Respuesta de limpieza de logs del frontend:', response);
             button.prop('disabled', false).html(originalText);
             
             if (response.success) {
@@ -523,37 +808,30 @@ jQuery(document).ready(function($) {
                 alert('Error al limpiar logs del frontend: ' + (response.data ? response.data.message : 'Error desconocido'));
             }
         }, function(xhr, status, error) {
-            console.error('CP: Error de comunicación al limpiar logs del frontend:', xhr, status, error);
             button.prop('disabled', false).html(originalText);
             alert('Error de comunicación al limpiar logs');
         });
     }
     
-    // NUEVO: Refrescar estadísticas del frontend
+    // Refrescar estadísticas del frontend
     function refreshFrontendStats() {
-        console.log('CP: Refrescando estadísticas del frontend...');
-        
         var button = $('#refresh-frontend-stats');
         var originalText = button.html();
         
         button.prop('disabled', true).html('<span class="spinner is-active"></span> Cargando...');
         
         ajaxRequest('cp_get_frontend_logs', {stats_only: true}, function(response) {
-            console.log('CP: Respuesta de estadísticas del frontend:', response);
             button.prop('disabled', false).html(originalText);
             
             if (response.success && response.data.stats) {
                 updateFrontendStats(response.data.stats);
-            } else {
-                console.error('CP: Error obteniendo estadísticas del frontend');
             }
         }, function(xhr, status, error) {
-            console.error('CP: Error de comunicación al obtener estadísticas del frontend:', xhr, status, error);
             button.prop('disabled', false).html(originalText);
         });
     }
     
-    // NUEVO: Actualizar estadísticas en el UI
+    // Actualizar estadísticas en el UI
     function updateFrontendStats(stats) {
         $('#total-searches-stat').text(stats.total || 0);
         $('#successful-searches-stat').text(stats.successful || 0);
@@ -565,11 +843,9 @@ jQuery(document).ready(function($) {
         
         $('#entidades-searches-stat').text(stats.entidades || 0);
         $('#proveedores-searches-stat').text(stats.proveedores || 0);
-        
-        console.log('CP: Estadísticas del frontend actualizadas:', stats);
     }
     
-    // NUEVO: Aplicar filtros
+    // Aplicar filtros
     function applyLogsFilters() {
         currentFilters = {
             status: $('#filter-status').val(),
@@ -579,11 +855,9 @@ jQuery(document).ready(function($) {
         
         currentPage = 1;
         refreshFrontendLogs();
-        
-        console.log('CP: Filtros aplicados:', currentFilters);
     }
     
-    // NUEVO: Limpiar filtros
+    // Limpiar filtros
     function clearLogsFilters() {
         $('#filter-status').val('');
         $('#filter-profile').val('');
@@ -592,11 +866,9 @@ jQuery(document).ready(function($) {
         currentFilters = {};
         currentPage = 1;
         refreshFrontendLogs();
-        
-        console.log('CP: Filtros limpiados');
     }
     
-    // NUEVO: Obtener texto de estado
+    // Obtener texto de estado
     function getStatusText(status) {
         var statusTexts = {
             'success': 'Exitosa',
@@ -606,14 +878,14 @@ jQuery(document).ready(function($) {
         return statusTexts[status] || status;
     }
     
-    // NUEVO: Capitalizar primera letra
+    // Capitalizar primera letra
     function capitalizeFirst(str) {
         if (!str) return '';
         return str.charAt(0).toUpperCase() + str.slice(1);
     }
     
     // ========================================
-    // FUNCIONES EXISTENTES (sin cambios)
+    // FUNCIONES EXISTENTES (dashboard, config, query)
     // ========================================
     
     function initDashboard() {
@@ -871,62 +1143,6 @@ jQuery(document).ready(function($) {
     }
     
     // ========================================
-    // PÁGINA DE CONFIGURACIÓN DE PARÁMETROS
-    // ========================================
-    
-    function initSettingsPage() {
-        // Validación específica para la página de parámetros
-        var $settingsForm = $('#cp-settings-form');
-        if ($settingsForm.length > 0) {
-            $settingsForm.on('submit', function(e) {
-                // Aquí puedes agregar validaciones específicas para parámetros si las necesitas
-                // Por ahora, solo permitir el envío normal
-                return true;
-            });
-        }
-        
-        // Alternar habilitación de método según activación
-        $('input[name^="cp_"][name$="_active"]').on('change', function() {
-            var baseName = $(this).attr('name').replace('_active', '');
-            var methodRadios = $('input[name="' + baseName + '_method"]');
-            
-            if ($(this).is(':checked')) {
-                methodRadios.prop('disabled', false);
-                methodRadios.closest('fieldset').removeClass('disabled');
-            } else {
-                methodRadios.prop('disabled', true);
-                methodRadios.closest('fieldset').addClass('disabled');
-            }
-        });
-        
-        // Inicializar estado de métodos
-        $('input[name^="cp_"][name$="_active"]').trigger('change');
-        
-        // Preview en tiempo real de términos
-        if (typeof tinymce !== 'undefined') {
-            // Si TinyMCE está disponible, escuchar cambios
-            $(document).on('tinymce-editor-init', function(event, editor) {
-                if (editor.id === 'cp_terms_content') {
-                    editor.on('change keyup', function() {
-                        updateTermsPreview();
-                    });
-                }
-            });
-        }
-        
-        // Fallback para textarea normal
-        $('#cp_terms_content').on('input', function() {
-            updateTermsPreview();
-        });
-    }
-    
-    function updateTermsPreview() {
-        // Esta función podría mostrar una vista previa de los términos
-        // Por ahora, solo un placeholder
-        console.log('Términos actualizados');
-    }
-    
-    // ========================================
     // PÁGINA DE CONSULTAS (funciones existentes sin cambios)
     // ========================================
     
@@ -1080,12 +1296,6 @@ jQuery(document).ready(function($) {
             alert('Por favor, escribe una consulta SQL');
             return;
         }
-        
-        // Validar que sea una consulta SELECT
-        //if (!query.toLowerCase().match(/^\s*select\s+/i)) {
-            //alert('Por seguridad, solo se permiten consultas SELECT');
-            //return;
-        //}
         
         var button = $('#execute-query');
         var originalHtml = button.html();
@@ -1374,8 +1584,6 @@ jQuery(document).ready(function($) {
         data.action = action;
         data.nonce = cp_ajax.nonce;
         
-        //console.log('CP: Enviando petición AJAX:', action, data);
-        
         // Verificar que tenemos nonce
         if (!cp_ajax.nonce) {
             console.error('CP: No hay nonce disponible!');
@@ -1390,7 +1598,6 @@ jQuery(document).ready(function($) {
             type: 'POST',
             data: data,
             success: function(response) {
-                //console.log('CP: Respuesta AJAX recibida:', action, response);
                 if (typeof successCallback === 'function') {
                     successCallback(response);
                 }
@@ -1463,34 +1670,195 @@ jQuery(document).ready(function($) {
         return;
     }
     
-    //console.log('CP: Nonce disponible:', cp_ajax.nonce ? 'SÍ' : 'NO');
-    //console.log('CP: URL AJAX:', cp_ajax.url);
+    // CSS dinámico para campos de validación
+    var dynamicCSS = `
+        <style>
+        .error-field {
+            border-color: #d63638 !important;
+            box-shadow: 0 0 0 1px #d63638;
+        }
+        
+        .valid-field {
+            border-color: #00a32a !important;
+            box-shadow: 0 0 0 1px #00a32a;
+        }
+        
+        .warning-field {
+            border-color: #dba617 !important;
+            box-shadow: 0 0 0 1px #dba617;
+        }
+        
+        .field-error {
+            color: #d63638;
+            font-size: 12px;
+            display: block;
+            margin-top: 5px;
+        }
+        
+        .field-warning {
+            color: #dba617;
+            font-size: 12px;
+            display: block;
+            margin-top: 5px;
+        }
+        
+        .cp-api-config {
+            transition: all 0.3s ease;
+        }
+        
+        .cp-method-radio {
+            margin-bottom: 5px;
+        }
+        
+        .status-badge {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .status-badge.success {
+            background-color: #00a32a;
+            color: white;
+        }
+        
+        .status-badge.error {
+            background-color: #d63638;
+            color: white;
+        }
+        
+        .status-badge.partial_success {
+            background-color: #dba617;
+            color: white;
+        }
+        
+        .frontend-logs-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        .frontend-logs-table th,
+        .frontend-logs-table td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+            font-size: 12px;
+        }
+        
+        .frontend-logs-table th {
+            background-color: #f1f1f1;
+            font-weight: bold;
+        }
+        
+        .truncated-cell {
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .log-error {
+            color: #d63638;
+            font-style: italic;
+        }
+        
+        .loading-logs {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .no-logs-message {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .no-logs-message .dashicons {
+            font-size: 48px;
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+        
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        .results-table th,
+        .results-table td {
+            padding: 8px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+        
+        .results-table th {
+            background-color: #f1f1f1;
+            font-weight: bold;
+        }
+        
+        .table-responsive {
+            overflow-x: auto;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+        }
+        
+        .sp-results-success,
+        .admin-results-success {
+            background: #f0f6fc;
+            border: 1px solid #0073aa;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+        
+        .sp-results-success h4,
+        .admin-results-success h4 {
+            margin-top: 0;
+            color: #0073aa;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .error {
+            background: #fbeaea;
+            border: 1px solid #d63638;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 10px;
+            color: #d63638;
+        }
+        
+        #logs-pagination {
+            margin-top: 15px;
+            text-align: center;
+        }
+        
+        #logs-pagination button {
+            margin: 0 5px;
+        }
+        
+        .cp-cache-stats {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        
+        .cp-cache-stats h4 {
+            margin-top: 0;
+        }
+        </style>
+    `;
     
-    // Debug: mostrar elementos de la página de logs si estamos ahí
-    if (window.location.href.indexOf('consulta-procesos-logs') !== -1) {
-        setTimeout(function() {
-            console.log('CP: Elementos de logs encontrados:', {
-                'test-stored-procedure': $('#test-stored-procedure').length,
-                'execute-admin-query': $('#execute-admin-query').length,
-                'refresh-logs': $('#refresh-logs').length,
-                'system-logs': $('#system-logs').length,
-                'refresh-frontend-logs': $('#refresh-frontend-logs').length,
-                'clear-frontend-logs': $('#clear-frontend-logs').length,
-                'refresh-frontend-stats': $('#refresh-frontend-stats').length
-            });
-        }, 100);
-    }
-    
-    // Debug: mostrar variables globales en consola
-    if (typeof cp_ajax.debug !== 'undefined' && cp_ajax.debug) {
-        console.log('Variables globales:', {
-            currentTables: currentTables,
-            queryResults: queryResults,
-            savedQueries: savedQueries,
-            frontendLogsData: frontendLogsData,
-            currentPage: currentPage,
-            pageSize: pageSize,
-            currentFilters: currentFilters
-        });
-    }
+    // Inyectar CSS dinámico
+    $('head').append(dynamicCSS);
 });

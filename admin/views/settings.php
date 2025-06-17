@@ -2,6 +2,7 @@
 /**
  * Vista: Configuración de Parámetros del Frontend
  * Archivo: admin/views/settings.php
+ * ACTUALIZADO: Con configuración de APIs
  */
 
 if (!defined('ABSPATH')) {
@@ -16,27 +17,59 @@ if (isset($_POST['submit']) && wp_verify_nonce($_POST['_wpnonce'], 'cp_settings_
     $terms_content = wp_kses_post($_POST['cp_terms_content']);
     update_option('cp_terms_content', $terms_content);
     
-    // Guardar configuraciones de búsqueda
+    // Guardar configuraciones de búsqueda TVEC
     update_option('cp_tvec_active', isset($_POST['cp_tvec_active']) ? 1 : 0);
     update_option('cp_tvec_method', sanitize_text_field($_POST['cp_tvec_method']));
+    update_option('cp_tvec_api_url_proveedores', esc_url_raw($_POST['cp_tvec_api_url_proveedores']));
+    update_option('cp_tvec_api_url_entidades', esc_url_raw($_POST['cp_tvec_api_url_entidades']));
+    update_option('cp_tvec_api_date_field', sanitize_text_field($_POST['cp_tvec_api_date_field']));
     
+    // Guardar configuraciones de búsqueda SECOPI
     update_option('cp_secopi_active', isset($_POST['cp_secopi_active']) ? 1 : 0);
     update_option('cp_secopi_method', sanitize_text_field($_POST['cp_secopi_method']));
+    update_option('cp_secopi_api_url_proveedores', esc_url_raw($_POST['cp_secopi_api_url_proveedores']));
+    update_option('cp_secopi_api_url_entidades', esc_url_raw($_POST['cp_secopi_api_url_entidades']));
+    update_option('cp_secopi_api_date_field', sanitize_text_field($_POST['cp_secopi_api_date_field']));
     
+    // Guardar configuraciones de búsqueda SECOPII
     update_option('cp_secopii_active', isset($_POST['cp_secopii_active']) ? 1 : 0);
     update_option('cp_secopii_method', sanitize_text_field($_POST['cp_secopii_method']));
+    update_option('cp_secopii_api_url_proveedores', esc_url_raw($_POST['cp_secopii_api_url_proveedores']));
+    update_option('cp_secopii_api_url_entidades', esc_url_raw($_POST['cp_secopii_api_url_entidades']));
+    update_option('cp_secopii_api_date_field', sanitize_text_field($_POST['cp_secopii_api_date_field']));
+    
+    // Guardar configuraciones de rendimiento
+    update_option('cp_enable_cache', isset($_POST['cp_enable_cache']) ? 1 : 0);
+    update_option('cp_cache_duration', intval($_POST['cp_cache_duration']));
+    update_option('cp_use_stored_procedures', isset($_POST['cp_use_stored_procedures']) ? 1 : 0);
+    update_option('cp_max_results_per_source', intval($_POST['cp_max_results_per_source']));
     
     echo '<div class="notice notice-success"><p>' . __('Configuración guardada exitosamente.', 'consulta-procesos') . '</p></div>';
 }
 
 // Obtener valores actuales
 $terms_content = get_option('cp_terms_content', '');
+
+// TVEC
 $tvec_active = get_option('cp_tvec_active', 1);
 $tvec_method = get_option('cp_tvec_method', 'database');
+$tvec_api_url_proveedores = get_option('cp_tvec_api_url_proveedores', '');
+$tvec_api_url_entidades = get_option('cp_tvec_api_url_entidades', '');
+$tvec_api_date_field = get_option('cp_tvec_api_date_field', '');
+
+// SECOPI
 $secopi_active = get_option('cp_secopi_active', 1);
 $secopi_method = get_option('cp_secopi_method', 'database');
+$secopi_api_url_proveedores = get_option('cp_secopi_api_url_proveedores', '');
+$secopi_api_url_entidades = get_option('cp_secopi_api_url_entidades', '');
+$secopi_api_date_field = get_option('cp_secopi_api_date_field', '');
+
+// SECOPII
 $secopii_active = get_option('cp_secopii_active', 1);
 $secopii_method = get_option('cp_secopii_method', 'database');
+$secopii_api_url_proveedores = get_option('cp_secopii_api_url_proveedores', '');
+$secopii_api_url_entidades = get_option('cp_secopii_api_url_entidades', '');
+$secopii_api_date_field = get_option('cp_secopii_api_date_field', '');
 ?>
 
 <div class="wrap">
@@ -105,11 +138,11 @@ $secopii_method = get_option('cp_secopii_method', 'database');
                             <td>
                                 <fieldset>
                                     <label>
-                                        <input type="radio" name="cp_tvec_method" value="database" <?php checked($tvec_method, 'database'); ?>>
+                                        <input type="radio" name="cp_tvec_method" value="database" <?php checked($tvec_method, 'database'); ?> class="cp-method-radio" data-target="tvec">
                                         <?php _e('Base de Datos SQL Server', 'consulta-procesos'); ?>
                                     </label><br>
                                     <label>
-                                        <input type="radio" name="cp_tvec_method" value="api" <?php checked($tvec_method, 'api'); ?>>
+                                        <input type="radio" name="cp_tvec_method" value="api" <?php checked($tvec_method, 'api'); ?> class="cp-method-radio" data-target="tvec">
                                         <?php _e('API Externa', 'consulta-procesos'); ?>
                                     </label>
                                 </fieldset>
@@ -119,6 +152,53 @@ $secopii_method = get_option('cp_secopii_method', 'database');
                             </td>
                         </tr>
                     </table>
+                    
+                    <!-- Configuración de API para TVEC -->
+                    <div class="cp-api-config" id="cp-tvec-api-config" style="<?php echo $tvec_method === 'api' ? '' : 'display: none;'; ?>">
+                        <h4><span class="dashicons dashicons-cloud"></span> <?php _e('Configuración de API - TVEC', 'consulta-procesos'); ?></h4>
+                        
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row">
+                                    <label for="cp_tvec_api_url_proveedores"><?php _e('URL API Proveedores', 'consulta-procesos'); ?></label>
+                                </th>
+                                <td>
+                                    <input type="url" name="cp_tvec_api_url_proveedores" id="cp_tvec_api_url_proveedores" 
+                                           value="<?php echo esc_attr($tvec_api_url_proveedores); ?>" class="regular-text" 
+                                           placeholder="https://www.datos.gov.co/resource/jbjy-vk9h.json?documento_proveedor=">
+                                    <p class="description">
+                                        <?php _e('URL de la API para consultar proveedores. Debe terminar con el parámetro de búsqueda (ej: documento_proveedor=). El número de documento se agregará automáticamente.', 'consulta-procesos'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="cp_tvec_api_url_entidades"><?php _e('URL API Entidades', 'consulta-procesos'); ?></label>
+                                </th>
+                                <td>
+                                    <input type="url" name="cp_tvec_api_url_entidades" id="cp_tvec_api_url_entidades" 
+                                           value="<?php echo esc_attr($tvec_api_url_entidades); ?>" class="regular-text" 
+                                           placeholder="https://www.datos.gov.co/resource/jbjy-vk9h.json?nit_entidad=">
+                                    <p class="description">
+                                        <?php _e('URL de la API para consultar entidades. Debe terminar con el parámetro de búsqueda (ej: nit_entidad=). El número de documento se agregará automáticamente.', 'consulta-procesos'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="cp_tvec_api_date_field"><?php _e('Campo de Fecha en API', 'consulta-procesos'); ?></label>
+                                </th>
+                                <td>
+                                    <input type="text" name="cp_tvec_api_date_field" id="cp_tvec_api_date_field" 
+                                           value="<?php echo esc_attr($tvec_api_date_field); ?>" class="regular-text" 
+                                           placeholder="fecha_de_inicio_del_contrato">
+                                    <p class="description">
+                                        <?php _e('Nombre del campo de fecha en la respuesta de la API que se usará para filtrar por rango de fechas.', 'consulta-procesos'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
                 </div>
                 
                 <!-- SECOPI -->
@@ -143,11 +223,11 @@ $secopii_method = get_option('cp_secopii_method', 'database');
                             <td>
                                 <fieldset>
                                     <label>
-                                        <input type="radio" name="cp_secopi_method" value="database" <?php checked($secopi_method, 'database'); ?>>
+                                        <input type="radio" name="cp_secopi_method" value="database" <?php checked($secopi_method, 'database'); ?> class="cp-method-radio" data-target="secopi">
                                         <?php _e('Base de Datos SQL Server', 'consulta-procesos'); ?>
                                     </label><br>
                                     <label>
-                                        <input type="radio" name="cp_secopi_method" value="api" <?php checked($secopi_method, 'api'); ?>>
+                                        <input type="radio" name="cp_secopi_method" value="api" <?php checked($secopi_method, 'api'); ?> class="cp-method-radio" data-target="secopi">
                                         <?php _e('API Externa', 'consulta-procesos'); ?>
                                     </label>
                                 </fieldset>
@@ -157,6 +237,53 @@ $secopii_method = get_option('cp_secopii_method', 'database');
                             </td>
                         </tr>
                     </table>
+                    
+                    <!-- Configuración de API para SECOPI -->
+                    <div class="cp-api-config" id="cp-secopi-api-config" style="<?php echo $secopi_method === 'api' ? '' : 'display: none;'; ?>">
+                        <h4><span class="dashicons dashicons-cloud"></span> <?php _e('Configuración de API - SECOPI', 'consulta-procesos'); ?></h4>
+                        
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row">
+                                    <label for="cp_secopi_api_url_proveedores"><?php _e('URL API Proveedores', 'consulta-procesos'); ?></label>
+                                </th>
+                                <td>
+                                    <input type="url" name="cp_secopi_api_url_proveedores" id="cp_secopi_api_url_proveedores" 
+                                           value="<?php echo esc_attr($secopi_api_url_proveedores); ?>" class="regular-text" 
+                                           placeholder="https://www.datos.gov.co/resource/secopi.json?documento_proveedor=">
+                                    <p class="description">
+                                        <?php _e('URL de la API para consultar proveedores. Debe terminar con el parámetro de búsqueda (ej: documento_proveedor=). El número de documento se agregará automáticamente.', 'consulta-procesos'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="cp_secopi_api_url_entidades"><?php _e('URL API Entidades', 'consulta-procesos'); ?></label>
+                                </th>
+                                <td>
+                                    <input type="url" name="cp_secopi_api_url_entidades" id="cp_secopi_api_url_entidades" 
+                                           value="<?php echo esc_attr($secopi_api_url_entidades); ?>" class="regular-text" 
+                                           placeholder="https://www.datos.gov.co/resource/secopi.json?nit_entidad=">
+                                    <p class="description">
+                                        <?php _e('URL de la API para consultar entidades. Debe terminar con el parámetro de búsqueda (ej: nit_entidad=). El número de documento se agregará automáticamente.', 'consulta-procesos'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="cp_secopi_api_date_field"><?php _e('Campo de Fecha en API', 'consulta-procesos'); ?></label>
+                                </th>
+                                <td>
+                                    <input type="text" name="cp_secopi_api_date_field" id="cp_secopi_api_date_field" 
+                                           value="<?php echo esc_attr($secopi_api_date_field); ?>" class="regular-text" 
+                                           placeholder="fecha_firma_contrato">
+                                    <p class="description">
+                                        <?php _e('Nombre del campo de fecha en la respuesta de la API que se usará para filtrar por rango de fechas.', 'consulta-procesos'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
                 </div>
                 
                 <!-- SECOPII -->
@@ -181,11 +308,11 @@ $secopii_method = get_option('cp_secopii_method', 'database');
                             <td>
                                 <fieldset>
                                     <label>
-                                        <input type="radio" name="cp_secopii_method" value="database" <?php checked($secopii_method, 'database'); ?>>
+                                        <input type="radio" name="cp_secopii_method" value="database" <?php checked($secopii_method, 'database'); ?> class="cp-method-radio" data-target="secopii">
                                         <?php _e('Base de Datos SQL Server', 'consulta-procesos'); ?>
                                     </label><br>
                                     <label>
-                                        <input type="radio" name="cp_secopii_method" value="api" <?php checked($secopii_method, 'api'); ?>>
+                                        <input type="radio" name="cp_secopii_method" value="api" <?php checked($secopii_method, 'api'); ?> class="cp-method-radio" data-target="secopii">
                                         <?php _e('API Externa', 'consulta-procesos'); ?>
                                     </label>
                                 </fieldset>
@@ -195,6 +322,53 @@ $secopii_method = get_option('cp_secopii_method', 'database');
                             </td>
                         </tr>
                     </table>
+                    
+                    <!-- Configuración de API para SECOPII -->
+                    <div class="cp-api-config" id="cp-secopii-api-config" style="<?php echo $secopii_method === 'api' ? '' : 'display: none;'; ?>">
+                        <h4><span class="dashicons dashicons-cloud"></span> <?php _e('Configuración de API - SECOPII', 'consulta-procesos'); ?></h4>
+                        
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row">
+                                    <label for="cp_secopii_api_url_proveedores"><?php _e('URL API Proveedores', 'consulta-procesos'); ?></label>
+                                </th>
+                                <td>
+                                    <input type="url" name="cp_secopii_api_url_proveedores" id="cp_secopii_api_url_proveedores" 
+                                           value="<?php echo esc_attr($secopii_api_url_proveedores); ?>" class="regular-text" 
+                                           placeholder="https://www.datos.gov.co/resource/secopii.json?documento_proveedor=">
+                                    <p class="description">
+                                        <?php _e('URL de la API para consultar proveedores. Debe terminar con el parámetro de búsqueda (ej: documento_proveedor=). El número de documento se agregará automáticamente.', 'consulta-procesos'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="cp_secopii_api_url_entidades"><?php _e('URL API Entidades', 'consulta-procesos'); ?></label>
+                                </th>
+                                <td>
+                                    <input type="url" name="cp_secopii_api_url_entidades" id="cp_secopii_api_url_entidades" 
+                                           value="<?php echo esc_attr($secopii_api_url_entidades); ?>" class="regular-text" 
+                                           placeholder="https://www.datos.gov.co/resource/secopii.json?nit_entidad=">
+                                    <p class="description">
+                                        <?php _e('URL de la API para consultar entidades. Debe terminar con el parámetro de búsqueda (ej: nit_entidad=). El número de documento se agregará automáticamente.', 'consulta-procesos'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="cp_secopii_api_date_field"><?php _e('Campo de Fecha en API', 'consulta-procesos'); ?></label>
+                                </th>
+                                <td>
+                                    <input type="text" name="cp_secopii_api_date_field" id="cp_secopii_api_date_field" 
+                                           value="<?php echo esc_attr($secopii_api_date_field); ?>" class="regular-text" 
+                                           placeholder="approval_date">
+                                    <p class="description">
+                                        <?php _e('Nombre del campo de fecha en la respuesta de la API que se usará para filtrar por rango de fechas.', 'consulta-procesos'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
                 </div>
             </div>
             
@@ -242,37 +416,7 @@ $secopii_method = get_option('cp_secopii_method', 'database');
                 </div>
             </div>
             
-            <!-- Configuración Avanzada -->
-            <div class="cp-card">
-                <h2><span class="dashicons dashicons-admin-generic"></span> <?php _e('Configuración Avanzada', 'consulta-procesos'); ?></h2>
-                
-                <table class="form-table">
-                    <tr>
-                        <th scope="row"><?php _e('APIs Configuradas', 'consulta-procesos'); ?></th>
-                        <td>
-                            <p class="description">
-                                <?php _e('Las configuraciones de API se establecerán en una futura actualización del plugin.', 'consulta-procesos'); ?>
-                            </p>
-                            <button type="button" class="button button-secondary" disabled>
-                                <?php _e('Configurar APIs', 'consulta-procesos'); ?>
-                            </button>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><?php _e('Caché de Resultados', 'consulta-procesos'); ?></th>
-                        <td>
-                            <label>
-                                <input type="checkbox" disabled>
-                                <?php _e('Habilitar caché de resultados (próximamente)', 'consulta-procesos'); ?>
-                            </label>
-                            <p class="description">
-                                <?php _e('Esta funcionalidad estará disponible en futuras versiones.', 'consulta-procesos'); ?>
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-
+            <!-- Configuración de Rendimiento -->
             <div class="cp-card">
                 <h2><span class="dashicons dashicons-performance"></span> <?php _e('Configuración de Rendimiento', 'consulta-procesos'); ?></h2>
                 
@@ -379,6 +523,20 @@ $secopii_method = get_option('cp_secopii_method', 'database');
                     <li><strong><?php _e('Base de Datos:', 'consulta-procesos'); ?></strong> <?php _e('Usa la conexión SQL Server configurada', 'consulta-procesos'); ?></li>
                     <li><strong><?php _e('API:', 'consulta-procesos'); ?></strong> <?php _e('Consulta servicios web externos', 'consulta-procesos'); ?></li>
                 </ul>
+                
+                <h4><?php _e('Configuración de APIs', 'consulta-procesos'); ?></h4>
+                <p><?php _e('Para cada sistema (TVEC, SECOPI, SECOPII) puede configurar:', 'consulta-procesos'); ?></p>
+                <ul>
+                    <li><?php _e('URL específica para consultar proveedores', 'consulta-procesos'); ?></li>
+                    <li><?php _e('URL específica para consultar entidades', 'consulta-procesos'); ?></li>
+                    <li><?php _e('Campo de fecha para filtros temporales', 'consulta-procesos'); ?></li>
+                </ul>
+                
+                <div class="cp-help-example">
+                    <h4><?php _e('Ejemplo de URL de API:', 'consulta-procesos'); ?></h4>
+                    <code>https://www.datos.gov.co/resource/jbjy-vk9h.json?documento_proveedor=</code>
+                    <p class="description"><?php _e('El número de documento del formulario se agregará automáticamente al final.', 'consulta-procesos'); ?></p>
+                </div>
             </div>
         </div>
     </div>
@@ -405,6 +563,29 @@ $secopii_method = get_option('cp_secopii_method', 'database');
     color: #0073aa;
     border-bottom: 1px solid #e0e0e0;
     padding-bottom: 10px;
+}
+
+.cp-api-config {
+    margin-top: 20px;
+    padding: 15px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    border-left: 4px solid #0073aa;
+}
+
+.cp-api-config h4 {
+    margin-top: 0;
+    color: #0073aa;
+}
+
+.cp-api-config .form-table th {
+    width: 200px;
+}
+
+.cp-api-config input[type="url"],
+.cp-api-config input[type="text"] {
+    width: 100%;
 }
 
 .cp-shortcode-examples {
@@ -466,6 +647,33 @@ $secopii_method = get_option('cp_secopii_method', 'database');
     grid-column: 2;
 }
 
+.cp-help-example {
+    background: #f0f6fc;
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 15px;
+}
+
+.cp-help-example code {
+    background: #fff;
+    padding: 5px 8px;
+    border-radius: 3px;
+    border: 1px solid #ddd;
+    display: block;
+    margin: 5px 0;
+    word-break: break-all;
+}
+
+.cp-cache-actions {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.cp-cache-actions button {
+    margin-right: 10px;
+}
+
 @media (max-width: 1200px) {
     .cp-settings-container {
         grid-template-columns: 1fr;
@@ -475,4 +683,116 @@ $secopii_method = get_option('cp_secopii_method', 'database');
         grid-column: 1;
     }
 }
+
+/* Animación para mostrar/ocultar configuración de API */
+.cp-api-config {
+    transition: all 0.3s ease;
+}
+
+.cp-method-radio {
+    margin-bottom: 5px;
+}
+
+/* Estilos para campos requeridos */
+.cp-api-config input:required {
+    border-left: 3px solid #d63638;
+}
+
+.cp-api-config input:required:valid {
+    border-left: 3px solid #00a32a;
+}
 </style>
+
+<script>
+jQuery(document).ready(function($) {
+    // Función para mostrar/ocultar configuración de API
+    function toggleApiConfig() {
+        $('.cp-method-radio').each(function() {
+            var target = $(this).data('target');
+            var method = $(this).val();
+            var apiConfig = $('#cp-' + target + '-api-config');
+            
+            if ($(this).is(':checked') && method === 'api') {
+                apiConfig.slideDown(300);
+            } else if ($(this).is(':checked') && method === 'database') {
+                apiConfig.slideUp(300);
+            }
+        });
+    }
+    
+    // Inicializar estado al cargar la página
+    toggleApiConfig();
+    
+    // Escuchar cambios en los radio buttons
+    $('.cp-method-radio').on('change', toggleApiConfig);
+    
+    // Validación de URLs
+    $('input[type="url"]').on('blur', function() {
+        var url = $(this).val();
+        if (url && !url.match(/^https?:\/\/.+/)) {
+            $(this).css('border-color', '#d63638');
+            $(this).next('.description').after('<span class="url-error" style="color: #d63638;">URL debe comenzar con http:// o https://</span>');
+        } else {
+            $(this).css('border-color', '');
+            $(this).siblings('.url-error').remove();
+        }
+    });
+    
+    // Limpiar caché
+    $('#cp-clear-cache').on('click', function() {
+        var button = $(this);
+        var originalText = button.html();
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Limpiando...');
+        
+        $.post(ajaxurl, {
+            action: 'cp_clear_cache',
+            nonce: '<?php echo wp_create_nonce("cp_admin_nonce"); ?>'
+        }, function(response) {
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success) {
+                alert('Caché limpiado exitosamente');
+            } else {
+                alert('Error al limpiar caché: ' + (response.data ? response.data.message : 'Error desconocido'));
+            }
+        }).fail(function() {
+            button.prop('disabled', false).html(originalText);
+            alert('Error de comunicación');
+        });
+    });
+    
+    // Ver estadísticas de caché
+    $('#cp-cache-stats').on('click', function() {
+        var button = $(this);
+        var originalText = button.html();
+        var infoDiv = $('#cp-cache-info');
+        
+        button.prop('disabled', true).html('<span class="spinner is-active"></span> Cargando...');
+        
+        $.post(ajaxurl, {
+            action: 'cp_get_cache_stats',
+            nonce: '<?php echo wp_create_nonce("cp_admin_nonce"); ?>'
+        }, function(response) {
+            button.prop('disabled', false).html(originalText);
+            
+            if (response.success) {
+                var stats = response.data;
+                var html = '<div class="cp-cache-stats">';
+                html += '<h4>Estadísticas de Caché</h4>';
+                html += '<p><strong>Consultas en caché:</strong> ' + stats.cached_queries + '</p>';
+                html += '<p><strong>Caché habilitado:</strong> ' + (stats.cache_enabled ? 'Sí' : 'No') + '</p>';
+                html += '<p><strong>Duración:</strong> ' + stats.cache_duration + ' segundos</p>';
+                html += '</div>';
+                
+                infoDiv.html(html).slideDown();
+            } else {
+                alert('Error al obtener estadísticas: ' + (response.data ? response.data.message : 'Error desconocido'));
+            }
+        }).fail(function() {
+            button.prop('disabled', false).html(originalText);
+            alert('Error de comunicación');
+        });
+    });
+});
+</script>

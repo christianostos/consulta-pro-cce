@@ -2,7 +2,7 @@
 /**
  * Clase para manejar todas las vistas y funcionalidades del panel de administración
  * 
- * Archivo: includes/class-cp-admin.php (actualizado con logs completos)
+ * Archivo: includes/class-cp-admin.php (actualizado con configuración de APIs)
  */
 
 if (!defined('ABSPATH')) {
@@ -30,7 +30,7 @@ class CP_Admin {
     private function __construct() {
         $this->db = CP_Database::get_instance();
         $this->init_hooks();
-        $this->register_logs_ajax_hooks(); // AGREGADO: Registrar hooks de logs
+        $this->register_logs_ajax_hooks();
     }
     
     /**
@@ -52,6 +52,10 @@ class CP_Admin {
         add_action('wp_ajax_cp_get_system_logs', array($this, 'ajax_get_system_logs'));
         add_action('wp_ajax_cp_clear_system_logs', array($this, 'ajax_clear_system_logs'));
         
+        // NUEVO: Hooks para caché
+        add_action('wp_ajax_cp_clear_cache', array($this, 'ajax_clear_cache'));
+        add_action('wp_ajax_cp_get_cache_stats', array($this, 'ajax_get_cache_stats'));
+        
         // Debug: Verificar que los hooks se registren
         add_action('wp_loaded', function() {
             error_log('CP Admin: Hooks AJAX registrados correctamente');
@@ -59,7 +63,7 @@ class CP_Admin {
     }
     
     /**
-     * NUEVO: Registrar hooks AJAX para logs del frontend
+     * Registrar hooks AJAX para logs del frontend
      */
     private function register_logs_ajax_hooks() {
         // Logs del frontend
@@ -132,7 +136,7 @@ class CP_Admin {
     }
     
     /**
-     * Inicializar configuraciones de administración
+     * Inicializar configuraciones de administración - ACTUALIZADO con APIs
      */
     public function admin_init() {
         // Registrar configuraciones de conexión
@@ -144,12 +148,33 @@ class CP_Admin {
         
         // Registrar configuraciones de parámetros del frontend
         register_setting('cp_frontend_settings_group', 'cp_terms_content');
+        
+        // TVEC
         register_setting('cp_frontend_settings_group', 'cp_tvec_active');
         register_setting('cp_frontend_settings_group', 'cp_tvec_method');
+        register_setting('cp_frontend_settings_group', 'cp_tvec_api_url_proveedores');
+        register_setting('cp_frontend_settings_group', 'cp_tvec_api_url_entidades');
+        register_setting('cp_frontend_settings_group', 'cp_tvec_api_date_field');
+        
+        // SECOPI
         register_setting('cp_frontend_settings_group', 'cp_secopi_active');
         register_setting('cp_frontend_settings_group', 'cp_secopi_method');
+        register_setting('cp_frontend_settings_group', 'cp_secopi_api_url_proveedores');
+        register_setting('cp_frontend_settings_group', 'cp_secopi_api_url_entidades');
+        register_setting('cp_frontend_settings_group', 'cp_secopi_api_date_field');
+        
+        // SECOPII
         register_setting('cp_frontend_settings_group', 'cp_secopii_active');
         register_setting('cp_frontend_settings_group', 'cp_secopii_method');
+        register_setting('cp_frontend_settings_group', 'cp_secopii_api_url_proveedores');
+        register_setting('cp_frontend_settings_group', 'cp_secopii_api_url_entidades');
+        register_setting('cp_frontend_settings_group', 'cp_secopii_api_date_field');
+        
+        // NUEVO: Configuraciones de rendimiento
+        register_setting('cp_frontend_settings_group', 'cp_enable_cache');
+        register_setting('cp_frontend_settings_group', 'cp_cache_duration');
+        register_setting('cp_frontend_settings_group', 'cp_use_stored_procedures');
+        register_setting('cp_frontend_settings_group', 'cp_max_results_per_source');
         
         // Secciones de configuración de conexión
         add_settings_section(
@@ -217,7 +242,7 @@ class CP_Admin {
             // Localizar script para AJAX
             wp_localize_script('cp-admin-js', 'cp_ajax', array(
                 'url' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('cp_admin_nonce'), // CORREGIDO: nonce específico para admin
+                'nonce' => wp_create_nonce('cp_admin_nonce'),
                 'messages' => array(
                     'testing' => __('Probando conexión...', 'consulta-procesos'),
                     'success' => __('Conexión exitosa', 'consulta-procesos'),
@@ -728,7 +753,7 @@ class CP_Admin {
     }
     
     /**
-     * NUEVO: AJAX para obtener logs del frontend para admin
+     * AJAX para obtener logs del frontend para admin
      */
     public function ajax_get_frontend_logs() {
         // Verificar permisos
@@ -865,7 +890,7 @@ class CP_Admin {
     }
     
     /**
-     * NUEVO: AJAX para limpiar logs del frontend
+     * AJAX para limpiar logs del frontend
      */
     public function ajax_clear_frontend_logs() {
         // Verificar permisos
@@ -909,7 +934,7 @@ class CP_Admin {
     }
     
     /**
-     * NUEVO: AJAX para exportar logs del frontend
+     * AJAX para exportar logs del frontend
      */
     public function ajax_export_frontend_logs() {
         // Verificar permisos
@@ -965,6 +990,50 @@ class CP_Admin {
     }
     
     /**
+     * NUEVO: AJAX para limpiar caché
+     */
+    public function ajax_clear_cache() {
+        check_ajax_referer('cp_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('No autorizado');
+        }
+        
+        if (class_exists('CP_Frontend')) {
+            $frontend = CP_Frontend::get_instance();
+            $result = $frontend->clear_search_cache();
+            
+            if ($result) {
+                wp_send_json_success(array('message' => 'Caché limpiado exitosamente'));
+            } else {
+                wp_send_json_error(array('message' => 'Error al limpiar caché'));
+            }
+        } else {
+            wp_send_json_error(array('message' => 'Clase frontend no disponible'));
+        }
+    }
+
+    /**
+     * NUEVO: AJAX para obtener estadísticas de caché
+     */
+    public function ajax_get_cache_stats() {
+        check_ajax_referer('cp_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('No autorizado');
+        }
+        
+        if (class_exists('CP_Frontend')) {
+            $frontend = CP_Frontend::get_instance();
+            $stats = $frontend->get_cache_stats();
+            
+            wp_send_json_success($stats);
+        } else {
+            wp_send_json_error(array('message' => 'Clase frontend no disponible'));
+        }
+    }
+    
+    /**
      * Obtener información del plugin para las vistas
      */
     public function get_plugin_info() {
@@ -1008,7 +1077,7 @@ class CP_Admin {
     }
     
     /**
-     * Obtener métodos de búsqueda activos
+     * Obtener métodos de búsqueda activos - ACTUALIZADO con APIs
      */
     private function get_active_search_methods() {
         $methods = array();
@@ -1051,7 +1120,7 @@ class CP_Admin {
     }
     
     /**
-     * Obtener opciones de configuración por defecto
+     * Obtener opciones de configuración por defecto - ACTUALIZADO con APIs
      */
     public function get_default_options() {
         return array(
@@ -1064,12 +1133,33 @@ class CP_Admin {
             
             // Configuración del frontend
             'cp_terms_content' => $this->get_default_terms_content(),
+            
+            // TVEC
             'cp_tvec_active' => 1,
             'cp_tvec_method' => 'database',
+            'cp_tvec_api_url_proveedores' => '',
+            'cp_tvec_api_url_entidades' => '',
+            'cp_tvec_api_date_field' => '',
+            
+            // SECOPI
             'cp_secopi_active' => 1,
             'cp_secopi_method' => 'database',
+            'cp_secopi_api_url_proveedores' => '',
+            'cp_secopi_api_url_entidades' => '',
+            'cp_secopi_api_date_field' => '',
+            
+            // SECOPII
             'cp_secopii_active' => 1,
-            'cp_secopii_method' => 'database'
+            'cp_secopii_method' => 'database',
+            'cp_secopii_api_url_proveedores' => '',
+            'cp_secopii_api_url_entidades' => '',
+            'cp_secopii_api_date_field' => '',
+            
+            // Rendimiento
+            'cp_enable_cache' => true,
+            'cp_cache_duration' => 300,
+            'cp_use_stored_procedures' => false,
+            'cp_max_results_per_source' => 1000
         );
     }
     
@@ -1102,7 +1192,7 @@ class CP_Admin {
     }
     
     /**
-     * Exportar configuración
+     * Exportar configuración - ACTUALIZADO con APIs
      */
     public function export_configuration() {
         $config = array();
@@ -1137,49 +1227,5 @@ class CP_Admin {
         }
         
         return $imported;
-    }
-
-    /**
-     * AJAX: Limpiar caché
-     */
-    public function ajax_clear_cache() {
-        check_ajax_referer('cp_admin_nonce', 'nonce');
-        
-        if (!current_user_can('manage_options')) {
-            wp_die('No autorizado');
-        }
-        
-        if (class_exists('CP_Frontend')) {
-            $frontend = CP_Frontend::get_instance();
-            $result = $frontend->clear_search_cache();
-            
-            if ($result) {
-                wp_send_json_success(array('message' => 'Caché limpiado exitosamente'));
-            } else {
-                wp_send_json_error(array('message' => 'Error al limpiar caché'));
-            }
-        } else {
-            wp_send_json_error(array('message' => 'Clase frontend no disponible'));
-        }
-    }
-
-    /**
-     * AJAX: Obtener estadísticas de caché
-     */
-    public function ajax_get_cache_stats() {
-        check_ajax_referer('cp_admin_nonce', 'nonce');
-        
-        if (!current_user_can('manage_options')) {
-            wp_die('No autorizado');
-        }
-        
-        if (class_exists('CP_Frontend')) {
-            $frontend = CP_Frontend::get_instance();
-            $stats = $frontend->get_cache_stats();
-            
-            wp_send_json_success($stats);
-        } else {
-            wp_send_json_error(array('message' => 'Clase frontend no disponible'));
-        }
     }
 }
