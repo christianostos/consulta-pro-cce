@@ -264,7 +264,7 @@ class CP_Frontend {
     private function render_profile_step() {
         ?>
         <div class="cp-profile-container">
-            <h3><?php _e('Seleccione su Perfil', 'consulta-procesos'); ?></h3>
+            <h3 style="color: #233A79;"><b><?php _e('Seleccione su Perfil', 'consulta-procesos'); ?></b></h3>
             
             <div class="cp-profile-options">
                 <div class="cp-profile-option">
@@ -272,7 +272,7 @@ class CP_Frontend {
                         <input type="radio" name="profile_type" value="entidades">
                         <div class="cp-radio-content">
                             <div class="cp-radio-icon">
-                                <span class="dashicons dashicons-building cp-icon-perfil"></span>
+                                <img src="<?php echo plugin_dir_url(dirname(__FILE__)) . 'images/IconoEntidad.png'; ?>" alt="Icono Entidad" class="cp-icon-perfil" />
                             </div>
                             <h4><?php _e('Entidades', 'consulta-procesos'); ?></h4>
                             <p><?php _e('Consultas para entidades públicas y organizaciones', 'consulta-procesos'); ?></p>
@@ -285,7 +285,7 @@ class CP_Frontend {
                         <input type="radio" name="profile_type" value="proveedores">
                         <div class="cp-radio-content">
                             <div class="cp-radio-icon">
-                                <span class="dashicons dashicons-businessman cp-icon-perfil"></span>
+                                <img src="<?php echo plugin_dir_url(dirname(__FILE__)) . 'images/IconoProveedor.png'; ?>" alt="Icono Entidad" class="cp-icon-perfil" />
                             </div>
                             <h4><?php _e('Proveedores', 'consulta-procesos'); ?></h4>
                             <p><?php _e('Consultas para proveedores y contratistas', 'consulta-procesos'); ?></p>
