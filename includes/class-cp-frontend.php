@@ -55,6 +55,10 @@ class CP_Frontend {
         // Hooks para logs del frontend (admin)
         add_action('wp_ajax_cp_get_frontend_logs', array($this, 'ajax_get_frontend_logs'));
         add_action('wp_ajax_cp_clear_frontend_logs', array($this, 'ajax_clear_frontend_logs'));
+
+        // Hook para exportar resultados del frontend
+        add_action('wp_ajax_cp_export_frontend_results', array($this, 'ajax_export_frontend_results'));
+        add_action('wp_ajax_nopriv_cp_export_frontend_results', array($this, 'ajax_export_frontend_results'));
     }
     
     /**
@@ -1904,5 +1908,203 @@ class CP_Frontend {
         $stats['last_search'] = $wpdb->get_var("SELECT created_at FROM {$table_name} ORDER BY created_at DESC LIMIT 1");
         
         return $stats;
+    }
+
+    /**
+     * AJAX: Exportar resultados del frontend a Excel
+     */
+    public function ajax_export_frontend_results() {
+        // Verificar nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'cp_frontend_nonce')) {
+            wp_send_json_error(array('message' => 'Token de seguridad inválido'));
+        }
+        
+        // Obtener y sanitizar datos
+        $export_data = $_POST['export_data'] ?? '';
+        $format = sanitize_text_field($_POST['format'] ?? 'excel');
+        $profile_type = sanitize_text_field($_POST['profile_type'] ?? '');
+        $search_params = $_POST['search_params'] ?? array();
+        
+        if (empty($export_data)) {
+            wp_send_json_error(array('message' => 'No hay datos para exportar'));
+        }
+        
+        // Decodificar datos JSON
+        $results_data = json_decode(stripslashes($export_data), true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            wp_send_json_error(array('message' => 'Error decodificando datos de exportación'));
+        }
+        
+        try {
+            // Preparar datos para exportación
+            $export_ready_data = $this->prepare_frontend_data_for_export($results_data, $search_params);
+            
+            // Generar nombre de archivo descriptivo
+            $filename = $this->generate_export_filename($profile_type, $search_params, $format);
+            
+            // Obtener instancia de la clase de exportación
+            $exporter = CP_Export::get_instance();
+            
+            // Validar datos antes de exportar
+            $validation = $exporter->validate_export_data($export_ready_data, 50000); // Máximo 50k registros
+            if (!$validation['valid']) {
+                wp_send_json_error(array('message' => $validation['error']));
+            }
+            
+            // Exportar datos
+            $export_result = $exporter->export_data($export_ready_data, $format, $filename);
+            
+            if ($export_result['success']) {
+                // Registrar exportación para estadísticas
+                $exporter->record_export($format);
+                
+                // Log de exportación exitosa
+                error_log("CP Frontend: Exportación exitosa - {$filename}, " . count($export_ready_data) . " registros");
+                
+                wp_send_json_success(array(
+                    'message' => 'Exportación completada exitosamente',
+                    'download_url' => $export_result['download_url'],
+                    'filename' => $export_result['filename'],
+                    'file_size' => $export_result['file_size'],
+                    'records_count' => $export_result['records_count'],
+                    'download_token' => $export_result['download_token']
+                ));
+            } else {
+                error_log("CP Frontend: Error en exportación - " . $export_result['error']);
+                wp_send_json_error(array('message' => $export_result['error']));
+            }
+            
+        } catch (Exception $e) {
+            error_log('CP Frontend Export Error: ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error interno del servidor: ' . $e->getMessage()));
+        }
+    }
+    
+    /**
+     * Preparar datos del frontend para exportación
+     */
+    private function prepare_frontend_data_for_export($results_data, $search_params) {
+        $prepared_data = array();
+        $row_counter = 1;
+        
+        // Agregar información de búsqueda como metadatos en las primeras filas
+        $search_info = array(
+            'INFORMACIÓN DE BÚSQUEDA' => '',
+            'Perfil' => $search_params['profile_type'] ?? '',
+            'Fecha Inicio' => $search_params['fecha_inicio'] ?? '',
+            'Fecha Fin' => $search_params['fecha_fin'] ?? '',
+            'Número Documento' => $search_params['numero_documento'] ?? '',
+            'Fecha Exportación' => current_time('Y-m-d H:i:s'),
+            'Total Fuentes' => count($results_data),
+            '' => ''
+        );
+        
+        $prepared_data[] = $search_info;
+        
+        // Procesar cada fuente de datos
+        foreach ($results_data as $source => $records) {
+            if (!is_array($records) || empty($records)) {
+                continue;
+            }
+            
+            // Agregar separador de fuente
+            $source_header = array(
+                'FUENTE' => strtoupper($this->get_source_title($source)),
+                'Registros' => count($records),
+                'Fuente_Datos' => $source
+            );
+            
+            // Rellenar columnas faltantes con valores vacíos
+            $first_record = $records[0];
+            $all_columns = is_array($first_record) ? array_keys($first_record) : array_keys(get_object_vars($first_record));
+            
+            foreach ($all_columns as $col) {
+                if (!isset($source_header[$col])) {
+                    $source_header[$col] = '';
+                }
+            }
+            
+            $prepared_data[] = $source_header;
+            
+            // Agregar encabezados de columnas
+            if (!empty($records)) {
+                $headers = is_array($first_record) ? array_keys($first_record) : array_keys(get_object_vars($first_record));
+                $header_row = array();
+                foreach ($headers as $header) {
+                    $header_row[$header] = strtoupper(str_replace('_', ' ', $header));
+                }
+                $prepared_data[] = $header_row;
+            }
+            
+            // Agregar registros de datos
+            foreach ($records as $record) {
+                if (is_object($record)) {
+                    $record = get_object_vars($record);
+                }
+                
+                // Limpiar y formatear datos
+                $clean_record = array();
+                foreach ($record as $key => $value) {
+                    // Formatear valores especiales
+                    if (is_null($value)) {
+                        $clean_record[$key] = '';
+                    } elseif (is_bool($value)) {
+                        $clean_record[$key] = $value ? 'SÍ' : 'NO';
+                    } elseif (is_array($value) || is_object($value)) {
+                        $clean_record[$key] = json_encode($value);
+                    } elseif (is_string($value) && strlen($value) > 1000) {
+                        // Truncar textos muy largos
+                        $clean_record[$key] = substr($value, 0, 1000) . '...';
+                    } else {
+                        $clean_record[$key] = $value;
+                    }
+                }
+                
+                // Agregar número de fila
+                $clean_record['NUM_FILA'] = $row_counter++;
+                
+                $prepared_data[] = $clean_record;
+            }
+            
+            // Agregar fila vacía como separador
+            $prepared_data[] = array();
+        }
+        
+        return $prepared_data;
+    }
+    
+    /**
+     * Generar nombre de archivo para exportación
+     */
+    private function generate_export_filename($profile_type, $search_params, $format) {
+        $date_str = date('Y-m-d_H-i-s');
+        $profile_str = $profile_type ? ucfirst($profile_type) : 'Consulta';
+        
+        $documento = '';
+        if (!empty($search_params['numero_documento'])) {
+            $documento = '_Doc-' . substr($search_params['numero_documento'], 0, 8);
+        }
+        
+        $fecha_range = '';
+        if (!empty($search_params['fecha_inicio']) && !empty($search_params['fecha_fin'])) {
+            $fecha_range = '_' . $search_params['fecha_inicio'] . '_a_' . $search_params['fecha_fin'];
+        }
+        
+        $extension = ($format === 'excel') ? 'xlsx' : $format;
+        
+        return "ConsultaProcesos_{$profile_str}{$documento}{$fecha_range}_{$date_str}.{$extension}";
+    }
+    
+    /**
+     * Obtener título de fuente
+     */
+    private function get_source_title($source) {
+        $titles = array(
+            'tvec' => 'TVEC - Catálogo de Proveedores',
+            'secopi' => 'SECOPI - Sistema de Información',
+            'secopii' => 'SECOPII - Sistema Extendido'
+        );
+        
+        return $titles[$source] ?? strtoupper($source);
     }
 }

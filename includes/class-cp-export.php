@@ -189,37 +189,72 @@ class CP_Export {
      * Exportar a Excel (usando formato CSV con configuración para Excel)
      */
     private function export_to_excel($data, $filepath, $headers = null) {
-        // Para una implementación básica, usamos CSV con separador de punto y coma
-        // Para una implementación completa, se necesitaría PhpSpreadsheet
-        
+        // Crear archivo Excel usando formato CSV con configuración específica para Excel
         $file = fopen($filepath, 'w');
         
         if (!$file) {
             throw new Exception('No se pudo crear el archivo Excel');
         }
         
-        // BOM para UTF-8
+        // BOM para UTF-8 (importante para caracteres especiales)
         fwrite($file, "\xEF\xBB\xBF");
         
         // Función personalizada para CSV compatible con Excel
-        $put_csv_excel = function($file, $fields, $delimiter = ';') {
-            $delimiter_esc = preg_quote($delimiter, '/');
-            $fields_escaped = array_map(function($field) use ($delimiter_esc) {
-                if (preg_match("/(?:${delimiter_esc}|\r|\n)/", $field)) {
-                    $field = '"' . str_replace('"', '""', $field) . '"';
-                }
-                return $field;
-            }, $fields);
+        $put_csv_excel = function($file, $fields, $delimiter = ',') {
+            $line = '';
+            $first = true;
             
-            fwrite($file, implode($delimiter, $fields_escaped) . "\r\n");
+            foreach ($fields as $field) {
+                if (!$first) {
+                    $line .= $delimiter;
+                }
+                $first = false;
+                
+                // Formatear campo para Excel
+                if (is_null($field)) {
+                    $field = '';
+                } elseif (is_bool($field)) {
+                    $field = $field ? 'VERDADERO' : 'FALSO';
+                } elseif (is_numeric($field)) {
+                    // Para números grandes que pueden ser interpretados como científicos
+                    if (strlen((string)$field) > 10 && ctype_digit((string)$field)) {
+                        $field = "=\"{$field}\""; // Forzar como texto
+                    }
+                } elseif (is_string($field)) {
+                    // Escapar comillas dobles
+                    $field = str_replace('"', '""', $field);
+                    
+                    // Envolver en comillas si contiene caracteres especiales
+                    if (strpos($field, $delimiter) !== false || 
+                        strpos($field, '"') !== false || 
+                        strpos($field, "\n") !== false ||
+                        strpos($field, "\r") !== false) {
+                        $field = '"' . $field . '"';
+                    }
+                    
+                    // Manejar saltos de línea dentro de celdas
+                    $field = str_replace(array("\r\n", "\r", "\n"), ' | ', $field);
+                }
+                
+                $line .= $field;
+            }
+            
+            fwrite($file, $line . "\r\n");
         };
         
-        // Escribir headers
+        // Escribir headers personalizados o automáticos
         if ($headers) {
             $put_csv_excel($file, $headers);
-        } elseif (!empty($data) && is_array($data[0])) {
+        } elseif (!empty($data)) {
             $first_row = is_object($data[0]) ? get_object_vars($data[0]) : $data[0];
-            $put_csv_excel($file, array_keys($first_row));
+            if (is_array($first_row)) {
+                // Crear headers más legibles
+                $readable_headers = array();
+                foreach (array_keys($first_row) as $key) {
+                    $readable_headers[] = $this->format_header_name($key);
+                }
+                $put_csv_excel($file, $readable_headers);
+            }
         }
         
         // Escribir datos
@@ -228,27 +263,72 @@ class CP_Export {
                 $row = get_object_vars($row);
             }
             
-            // Formatear valores para Excel
-            $row = array_map(function($value) {
-                if (is_null($value)) {
-                    return '';
-                } elseif (is_bool($value)) {
-                    return $value ? 'VERDADERO' : 'FALSO';
-                } elseif (is_numeric($value)) {
-                    // Mantener números como números
-                    return $value;
-                } elseif (is_array($value) || is_object($value)) {
-                    return json_encode($value);
-                } else {
-                    return (string) $value;
+            if (is_array($row)) {
+                // Formatear valores para mejor visualización en Excel
+                $formatted_row = array();
+                foreach ($row as $key => $value) {
+                    $formatted_row[] = $this->format_cell_value($value);
                 }
-            }, $row);
-            
-            $put_csv_excel($file, $row);
+                $put_csv_excel($file, $formatted_row);
+            }
         }
         
         fclose($file);
+        
+        // Cambiar extensión a .xlsx para que Excel lo reconozca mejor
+        $new_filepath = str_replace('.csv', '.xlsx', $filepath);
+        if ($filepath !== $new_filepath) {
+            rename($filepath, $new_filepath);
+        }
+        
         return true;
+    }
+    
+    /**
+     * Formatear nombre de header para mejor legibilidad
+     */
+    private function format_header_name($header) {
+        // Convertir snake_case a Title Case
+        $formatted = str_replace('_', ' ', $header);
+        $formatted = ucwords(strtolower($formatted));
+        
+        // Mapeo de nombres específicos
+        $mappings = array(
+            'Id' => 'ID',
+            'Nit' => 'NIT',
+            'Url' => 'URL',
+            'Num Fila' => 'Núm. Fila',
+            'Fecha Inicio' => 'Fecha de Inicio',
+            'Fecha Fin' => 'Fecha de Fin',
+            'Numero Documento' => 'Número de Documento'
+        );
+        
+        return $mappings[$formatted] ?? $formatted;
+    }
+    
+    /**
+     * Formatear valor de celda para Excel
+     */
+    private function format_cell_value($value) {
+        if (is_null($value)) {
+            return '';
+        } elseif (is_bool($value)) {
+            return $value ? 'SÍ' : 'NO';
+        } elseif (is_array($value) || is_object($value)) {
+            return json_encode($value, JSON_UNESCAPED_UNICODE);
+        } elseif (is_string($value)) {
+            // Limpiar caracteres problemáticos
+            $value = trim($value);
+            
+            // Limitar longitud máxima por celda (Excel tiene límites)
+            if (strlen($value) > 32767) {
+                $value = substr($value, 0, 32760) . '...';
+            }
+            
+            return $value;
+        } else {
+            return (string) $value;
+        }
     }
     
     /**

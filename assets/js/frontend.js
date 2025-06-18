@@ -724,6 +724,18 @@ jQuery(document).ready(function($) {
                     results: progressData.results,
                     total_records: progressData.total_records
                 });
+                
+                // NUEVO: Almacenar resultados para exportación
+                storeResultsForExport(progressData.results, progressData.search_params || {
+                    profile_type: selectedProfile,
+                    fecha_inicio: $('#cp-fecha-inicio').val(),
+                    fecha_fin: $('#cp-fecha-fin').val(),
+                    numero_documento: $('#cp-numero-documento').val()
+                });
+                
+                // NUEVO: Agregar botón de exportación
+                addExportButtonToResults();
+                
             } else {
                 displayResults({
                     has_results: false,
@@ -876,6 +888,9 @@ jQuery(document).ready(function($) {
         // Resetear barra de progreso
         $('.cp-progress-bar-fill').css('width', '0%');
         $('.cp-progress-percentage').text('0%');
+        
+        // NUEVO: Limpiar resultados almacenados para exportación
+        clearStoredResults();
     }
     
     /**
@@ -898,6 +913,17 @@ jQuery(document).ready(function($) {
         $('html, body').animate({
             scrollTop: $resultsContainer.offset().top - 50
         }, 500);
+        
+        // NUEVO: Si hay resultados, agregar funcionalidad de exportación
+        if (data.has_results && data.results) {
+            storeResultsForExport(data.results, window.currentSearchParams || {
+                profile_type: selectedProfile,
+                fecha_inicio: $('#cp-fecha-inicio').val(),
+                fecha_fin: $('#cp-fecha-fin').val(),
+                numero_documento: $('#cp-numero-documento').val()
+            });
+            addExportButtonToResults();
+        }
         
         // Si es resultado parcial, mostrar mensaje adicional
         if (data.is_partial && data.timeout_message) {
@@ -1188,6 +1214,182 @@ jQuery(document).ready(function($) {
             resetSearchState();
         }
     });
+
+    /**
+     * NUEVO: Exportar resultados a Excel
+     */
+    function exportResultsToExcel() {
+        // Verificar que hay resultados para exportar
+        if (!window.currentSearchResults || Object.keys(window.currentSearchResults).length === 0) {
+            showError('No hay resultados para exportar');
+            return;
+        }
+        
+        // Verificar que hay datos en los resultados
+        var totalRecords = 0;
+        Object.keys(window.currentSearchResults).forEach(function(source) {
+            if (window.currentSearchResults[source] && Array.isArray(window.currentSearchResults[source])) {
+                totalRecords += window.currentSearchResults[source].length;
+            }
+        });
+        
+        if (totalRecords === 0) {
+            showError('No hay registros para exportar');
+            return;
+        }
+        
+        // Mostrar indicador de carga
+        var $exportButton = $('.cp-export-excel');
+        var originalText = $exportButton.html();
+        
+        $exportButton.prop('disabled', true).html(
+            '<span class="dashicons dashicons-update-alt cp-spin"></span> Generando Excel...'
+        );
+        
+        log('Iniciando exportación a Excel de ' + totalRecords + ' registros');
+        
+        // Preparar datos para envío
+        var exportData = {
+            action: 'cp_export_frontend_results',
+            nonce: cp_frontend_ajax.nonce,
+            export_data: JSON.stringify(window.currentSearchResults),
+            format: 'excel',
+            profile_type: window.currentSearchProfile || selectedProfile,
+            search_params: window.currentSearchParams || {
+                profile_type: selectedProfile,
+                fecha_inicio: $('#cp-fecha-inicio').val(),
+                fecha_fin: $('#cp-fecha-fin').val(),
+                numero_documento: $('#cp-numero-documento').val()
+            }
+        };
+        
+        // Realizar solicitud AJAX
+        $.ajax({
+            url: cp_frontend_ajax.url,
+            type: 'POST',
+            data: exportData,
+            dataType: 'json',
+            timeout: 60000, // 60 segundos de timeout
+            success: function(response) {
+                if (response.success) {
+                    log('Exportación exitosa: ' + response.data.filename);
+                    
+                    // Mostrar mensaje de éxito
+                    showExportSuccess(response.data);
+                    
+                    // Iniciar descarga automática
+                    setTimeout(function() {
+                        window.location.href = response.data.download_url;
+                    }, 1000);
+                    
+                } else {
+                    log('Error en exportación: ' + response.data.message);
+                    showError('Error al generar Excel: ' + response.data.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                log('Error AJAX en exportación: ' + error);
+                
+                if (status === 'timeout') {
+                    showError('La exportación está tomando demasiado tiempo. Por favor, intente con menos registros.');
+                } else {
+                    showError('Error de conexión al generar el archivo Excel');
+                }
+            },
+            complete: function() {
+                // Restaurar botón
+                $exportButton.prop('disabled', false).html(originalText);
+            }
+        });
+    }
+    
+    /**
+     * NUEVO: Mostrar mensaje de éxito de exportación
+     */
+    function showExportSuccess(exportData) {
+        var message = `
+            Excel generado exitosamente:<br>
+            <strong>${escapeHtml(exportData.filename)}</strong><br>
+            ${exportData.records_count} registros • ${exportData.file_size}<br>
+            <small>La descarga comenzará automáticamente...</small>
+        `;
+        
+        // Crear mensaje personalizado para exportación
+        $('.cp-export-success').remove();
+        
+        var successHtml = `
+            <div class="cp-export-success">
+                <span class="dashicons dashicons-yes-alt"></span>
+                <div class="cp-export-message">${message}</div>
+            </div>
+        `;
+        
+        $('.cp-results-summary').after(successHtml);
+        
+        // Auto-remover después de 8 segundos
+        setTimeout(function() {
+            $('.cp-export-success').fadeOut(300, function() {
+                $(this).remove();
+            });
+        }, 8000);
+    }
+    
+    /**
+     * NUEVO: Agregar botón de exportación a los resultados
+     */
+    function addExportButtonToResults() {
+        // Verificar si ya existe el botón
+        if ($('.cp-export-actions').length > 0) {
+            return;
+        }
+        
+        var exportButtonsHtml = `
+            <div class="cp-export-actions">
+                <button type="button" class="cp-btn cp-btn-secondary cp-export-excel">
+                    <span class="dashicons dashicons-media-spreadsheet"></span>
+                    Exportar a Excel
+                </button>
+                <small class="cp-export-help">
+                    Se exportarán todos los resultados encontrados en las diferentes fuentes
+                </small>
+            </div>
+        `;
+        
+        // Agregar después del resumen de resultados
+        $('.cp-results-summary').after(exportButtonsHtml);
+        
+        // Vincular evento click
+        $('.cp-export-excel').on('click', function(e) {
+            e.preventDefault();
+            exportResultsToExcel();
+        });
+        
+        log('Botón de exportación agregado a los resultados');
+    }
+    
+    /**
+     * NUEVO: Almacenar resultados globalmente para exportación
+     */
+    function storeResultsForExport(results, searchParams) {
+        window.currentSearchResults = results;
+        window.currentSearchParams = searchParams;
+        window.currentSearchProfile = selectedProfile;
+        
+        log('Resultados almacenados para exportación: ' + Object.keys(results).length + ' fuentes');
+    }
+    
+    /**
+     * NUEVO: Limpiar resultados almacenados
+     */
+    function clearStoredResults() {
+        window.currentSearchResults = null;
+        window.currentSearchParams = null;
+        window.currentSearchProfile = null;
+        
+        // Remover botones de exportación
+        $('.cp-export-actions').remove();
+        $('.cp-export-success').remove();
+    }
     
     // Log de inicialización
     log('Frontend con indicador de progreso inicializado correctamente');
