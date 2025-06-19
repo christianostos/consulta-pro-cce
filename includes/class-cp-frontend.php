@@ -1996,6 +1996,76 @@ class CP_Frontend {
             wp_send_json_error(array('message' => 'Error interno del servidor: ' . $e->getMessage()));
         }
     }
+
+    /**
+     * AJAX: Exportar resultados del frontend a Excel (DESCARGA MANUAL)
+     */
+    public function ajax_export_frontend_results() {
+        // Verificar nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'cp_frontend_nonce')) {
+            wp_send_json_error(array('message' => 'Token de seguridad inválido'));
+        }
+        
+        // Obtener y sanitizar datos
+        $export_data = $_POST['export_data'] ?? '';
+        $format = sanitize_text_field($_POST['format'] ?? 'excel');
+        $profile_type = sanitize_text_field($_POST['profile_type'] ?? '');
+        $search_params = $_POST['search_params'] ?? array();
+        
+        if (empty($export_data)) {
+            wp_send_json_error(array('message' => 'No hay datos para exportar'));
+        }
+        
+        // Decodificar datos JSON
+        $results_data = json_decode(stripslashes($export_data), true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            wp_send_json_error(array('message' => 'Error decodificando datos de exportación'));
+        }
+        
+        try {
+            // Preparar datos para exportación
+            $export_ready_data = $this->prepare_frontend_data_for_export($results_data, $search_params);
+            
+            // Generar nombre de archivo descriptivo
+            $filename = $this->generate_export_filename($profile_type, $search_params, $format);
+            
+            // Obtener instancia de la clase de exportación
+            $exporter = CP_Export::get_instance();
+            
+            // Validar datos antes de exportar
+            $validation = $exporter->validate_export_data($export_ready_data, 50000); // Máximo 50k registros
+            if (!$validation['valid']) {
+                wp_send_json_error(array('message' => $validation['error']));
+            }
+            
+            // Exportar datos
+            $export_result = $exporter->export_data($export_ready_data, $format, $filename);
+            
+            if ($export_result['success']) {
+                // Registrar exportación para estadísticas
+                $exporter->record_export($format);
+                
+                // Log de exportación exitosa
+                error_log("CP Frontend: Exportación manual exitosa - {$filename}, " . count($export_ready_data) . " registros");
+                
+                wp_send_json_success(array(
+                    'message' => 'Exportación completada exitosamente',
+                    'download_url' => $export_result['download_url'],
+                    'filename' => $export_result['filename'],
+                    'file_size' => $export_result['file_size'],
+                    'records_count' => $export_result['records_count'],
+                    'download_token' => $export_result['download_token']
+                ));
+            } else {
+                error_log("CP Frontend: Error en exportación manual - " . $export_result['error']);
+                wp_send_json_error(array('message' => $export_result['error']));
+            }
+            
+        } catch (Exception $e) {
+            error_log('CP Frontend Manual Export Error: ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error interno del servidor: ' . $e->getMessage()));
+        }
+    }
     
     /**
      * Preparar datos del frontend para exportación
