@@ -36,6 +36,9 @@ class CP_Export {
         error_log('CP Export: Upload dir: ' . print_r($upload_dir, true));
         error_log('CP Export: Temp dir configurado: ' . $this->temp_dir);
         
+        // Cargar SimpleXLSXGen si está disponible
+        $this->load_simplexlsxgen();
+        
         $this->init_hooks();
         $this->create_temp_directory();
     }
@@ -132,8 +135,8 @@ class CP_Export {
                     break;
                     
                 case 'excel':
-                    // Para Excel, creamos un CSV optimizado que Excel puede abrir correctamente
-                    $result = $this->export_to_excel_csv($data, $filepath, $headers);
+                    // Intentar SimpleXLSXGen primero, fallback a CSV si falla
+                    $result = $this->export_to_excel_simplexlsxgen($data, $filepath, $headers);
                     break;
                     
                 case 'json':
@@ -193,9 +196,12 @@ class CP_Export {
         $timestamp = date('Y-m-d_H-i-s');
         $random = substr(md5(uniqid(mt_rand(), true)), 0, 8);
         
-        // IMPORTANTE: Para Excel, usar extensión .csv (no .xlsx)
-        // Excel puede abrir CSV perfectamente
-        $extension = ($format === 'excel') ? 'csv' : $format;
+        if ($format === 'excel') {
+            // Si tenemos SimpleXLSXGen, usar .xlsx, sino .csv como fallback
+            $extension = class_exists('Shuchkin\SimpleXLSXGen') ? 'xlsx' : 'csv';
+        } else {
+            $extension = $format;
+        }
         
         return "consulta_procesos_{$timestamp}_{$random}.{$extension}";
     }
@@ -694,9 +700,25 @@ class CP_Export {
             ob_end_clean();
         }
         
-        // Headers para descarga
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+        // Determinar content type y headers específicos
+        $extension = pathinfo($filename, PATHINFO_EXTENSION);
+        
+        if ($extension === 'xlsx') {
+            // Headers específicos para archivos Excel reales (.xlsx)
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+            header('X-Content-Type-Options: nosniff');
+            header('Content-Transfer-Encoding: binary');
+        } elseif ($extension === 'csv') {
+            // Headers para CSV
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+        } else {
+            // Headers genéricos para otros formatos
+            header('Content-Type: application/octet-stream');
+            header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+        }
+        
         header('Content-Length: ' . $file_size);
         header('Cache-Control: no-cache, must-revalidate');
         header('Pragma: no-cache');
@@ -836,5 +858,281 @@ class CP_Export {
         }
         
         return array('valid' => true);
+    }
+
+    /**
+     * Cargar SimpleXLSXGen si está disponible
+     */
+    private function load_simplexlsxgen() {
+        // Obtener la ruta del plugin de manera dinámica
+        $plugin_dir = plugin_dir_path(dirname(__FILE__)); // Esto nos da la ruta del plugin
+        $lib_path = $plugin_dir . 'lib/SimpleXLSXGen.php';
+        
+        error_log('CP Export: Intentando cargar SimpleXLSXGen desde: ' . $lib_path);
+        error_log('CP Export: Plugin dir es: ' . $plugin_dir);
+        error_log('CP Export: Archivo existe: ' . (file_exists($lib_path) ? 'SÍ' : 'NO'));
+        
+        if (file_exists($lib_path)) {
+            require_once $lib_path;
+            error_log('CP Export: SimpleXLSXGen cargado desde: ' . $lib_path);
+            
+            // Verificar diferentes posibles nombres de clase
+            $class_variations = array(
+                'Shuchkin\SimpleXLSXGen',
+                'SimpleXLSXGen', 
+                '\SimpleXLSXGen'
+            );
+            
+            $class_found = false;
+            foreach ($class_variations as $class_name) {
+                if (class_exists($class_name)) {
+                    error_log('CP Export: ✅ Clase encontrada: ' . $class_name);
+                    $class_found = true;
+                    break;
+                }
+            }
+            
+            if (!$class_found) {
+                error_log('CP Export: ❌ Ninguna variación de clase SimpleXLSXGen encontrada');
+                // Mostrar todas las clases disponibles para debug
+                $all_classes = get_declared_classes();
+                $xlsx_classes = array_filter($all_classes, function($class) {
+                    return stripos($class, 'xlsx') !== false || stripos($class, 'shuchkin') !== false;
+                });
+                error_log('CP Export: Clases Excel/Shuchkin disponibles: ' . implode(', ', $xlsx_classes));
+            } else {
+                error_log('CP Export: ✅ SimpleXLSXGen está disponible y listo para usar');
+            }
+        } else {
+            error_log('CP Export: ❌ SimpleXLSXGen no encontrado en: ' . $lib_path);
+            
+            // Verificar estructura de directorios
+            $plugin_dir_contents = is_dir($plugin_dir) ? scandir($plugin_dir) : array();
+            error_log('CP Export: Contenido del plugin dir: ' . implode(', ', $plugin_dir_contents));
+            
+            $lib_dir = $plugin_dir . 'lib/';
+            if (is_dir($lib_dir)) {
+                $lib_contents = scandir($lib_dir);
+                error_log('CP Export: Contenido de lib/: ' . implode(', ', $lib_contents));
+            } else {
+                error_log('CP Export: Directorio lib/ no existe en: ' . $lib_dir);
+            }
+            
+            error_log('CP Export: Se usará fallback a CSV cuando se exporte a Excel');
+        }
+    }
+
+    /**
+     * Exportar usando SimpleXLSXGen
+     */
+    private function export_to_excel_simplexlsxgen($data, $filepath, $headers = null) {
+        error_log('CP Export: export_to_excel_simplexlsxgen iniciada - ' . count($data) . ' registros');
+        
+        // Verificar diferentes variaciones de la clase
+        $xlsx_class = null;
+        $class_variations = array(
+            'Shuchkin\SimpleXLSXGen',
+            'SimpleXLSXGen', 
+            '\SimpleXLSXGen'
+        );
+        
+        foreach ($class_variations as $class_name) {
+            if (class_exists($class_name)) {
+                $xlsx_class = $class_name;
+                error_log('CP Export: Usando clase: ' . $class_name);
+                break;
+            }
+        }
+        
+        if (!$xlsx_class) {
+            error_log('CP Export: SimpleXLSXGen no disponible, usando fallback CSV');
+            // Cambiar extensión y usar CSV como fallback
+            $csv_filepath = str_replace('.xlsx', '.csv', $filepath);
+            $result = $this->export_to_excel_csv($data, $csv_filepath, $headers);
+            if ($result && file_exists($csv_filepath)) {
+                // Mover archivo CSV al path original para mantener el nombre esperado
+                rename($csv_filepath, $filepath);
+            }
+            return $result;
+        }
+        
+        try {
+            // Preparar datos para SimpleXLSXGen - FORMATO CORRECTO
+            $excel_data = array();
+            
+            // Agregar headers
+            if ($headers && is_array($headers)) {
+                $excel_data[] = $headers;
+            } elseif (!empty($data)) {
+                $first_row = is_object($data[0]) ? get_object_vars($data[0]) : $data[0];
+                if (is_array($first_row)) {
+                    $header_row = array();
+                    foreach (array_keys($first_row) as $key) {
+                        $header_row[] = $this->format_header_name($key);
+                    }
+                    $excel_data[] = $header_row;
+                }
+            }
+            
+            // Agregar datos procesados
+            foreach ($data as $row) {
+                if (is_object($row)) {
+                    $row = get_object_vars($row);
+                }
+                
+                if (is_array($row)) {
+                    $clean_row = array();
+                    foreach ($row as $key => $value) {
+                        $clean_row[] = $this->format_cell_value_for_simplexlsxgen($value, $key);
+                    }
+                    $excel_data[] = $clean_row;
+                }
+            }
+            
+            error_log('CP Export: Datos preparados para SimpleXLSXGen - ' . count($excel_data) . ' filas');
+            
+            // Crear archivo Excel con SimpleXLSXGen - MÉTODO CORRECTO
+            if ($xlsx_class === 'Shuchkin\SimpleXLSXGen') {
+                $xlsx = \Shuchkin\SimpleXLSXGen::fromArray($excel_data);
+            } else {
+                $xlsx = $xlsx_class::fromArray($excel_data);
+            }
+            
+            if (!$xlsx) {
+                throw new Exception('No se pudo crear objeto SimpleXLSXGen');
+            }
+            
+            error_log('CP Export: Objeto SimpleXLSXGen creado exitosamente');
+            
+            // Guardar archivo - MÉTODO SIMPLIFICADO
+            $success = $xlsx->saveAs($filepath);
+            
+            if (!$success) {
+                throw new Exception('SimpleXLSXGen::saveAs() retornó false');
+            }
+            
+            // Verificar que el archivo se creó y tiene contenido
+            if (!file_exists($filepath)) {
+                throw new Exception('El archivo no se creó en el sistema de archivos');
+            }
+            
+            $file_size = filesize($filepath);
+            if ($file_size === 0) {
+                throw new Exception('El archivo se creó pero está vacío (0 bytes)');
+            }
+            
+            // Verificar que es un archivo Excel válido (debe tener al menos 1KB)
+            if ($file_size < 1024) {
+                error_log('CP Export: ADVERTENCIA - Archivo muy pequeño (' . $file_size . ' bytes), puede estar corrupto');
+            }
+            
+            error_log('CP Export: ✅ SimpleXLSXGen archivo Excel (.xlsx) creado exitosamente: ' . $filepath . ' (' . $file_size . ' bytes)');
+            return true;
+            
+        } catch (Exception $e) {
+            error_log('CP Export: ❌ Error con SimpleXLSXGen: ' . $e->getMessage());
+            error_log('CP Export: Stack trace: ' . $e->getTraceAsString());
+            
+            // Fallback a CSV en caso de error
+            error_log('CP Export: Usando fallback a CSV...');
+            $csv_filepath = str_replace('.xlsx', '.csv', $filepath);
+            $result = $this->export_to_excel_csv($data, $csv_filepath, $headers);
+            if ($result && file_exists($csv_filepath)) {
+                rename($csv_filepath, $filepath);
+            }
+            return $result;
+        }
+    }
+
+    /**
+     * Formatear valor de celda específicamente para SimpleXLSXGen
+     */
+    private function format_cell_value_for_simplexlsxgen($value, $field_name = '') {
+        if (is_null($value)) {
+            return '';
+        } elseif (is_bool($value)) {
+            return $value ? 'SÍ' : 'NO';
+        } elseif (is_array($value) || is_object($value)) {
+            return json_encode($value, JSON_UNESCAPED_UNICODE);
+        } elseif (is_numeric($value)) {
+            // Para números muy largos (como NITs), preservar como string
+            if (strlen((string)$value) > 10 && ctype_digit((string)$value)) {
+                return (string)$value; // SimpleXLSXGen maneja esto automáticamente
+            }
+            return $value;
+        } else {
+            // Limpiar string
+            $str = trim((string) $value);
+            
+            // Reemplazar saltos de línea problemáticos para Excel
+            $str = str_replace(array("\r\n", "\r", "\n"), ' | ', $str);
+            
+            // Reemplazar tabulaciones
+            $str = str_replace("\t", ' ', $str);
+            
+            // Limpiar caracteres de control
+            $str = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $str);
+            
+            // Limitar longitud para Excel (SimpleXLSXGen maneja esto, pero es buena práctica)
+            if (strlen($str) > 32000) {
+                $str = substr($str, 0, 31990) . '... (truncado)';
+            }
+            
+            return $str;
+        }
+    }
+
+    /**
+     * Verificar si SimpleXLSXGen está disponible (método público para debugging)
+     */
+    public function is_simplexlsxgen_available() {
+        $class_variations = array(
+            'Shuchkin\SimpleXLSXGen',
+            'SimpleXLSXGen', 
+            '\SimpleXLSXGen'
+        );
+        
+        foreach ($class_variations as $class_name) {
+            if (class_exists($class_name)) {
+                return $class_name; // Retornar el nombre de la clase encontrada
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * Obtener información de SimpleXLSXGen para debugging
+     */
+    public function get_simplexlsxgen_info() {
+        $plugin_dir = plugin_dir_path(dirname(__FILE__));
+        $lib_path = $plugin_dir . 'lib/SimpleXLSXGen.php';
+        
+        $info = array(
+            'plugin_dir' => $plugin_dir,
+            'lib_path' => $lib_path,
+            'file_exists' => file_exists($lib_path),
+            'file_size' => file_exists($lib_path) ? filesize($lib_path) : 0,
+            'file_readable' => file_exists($lib_path) ? is_readable($lib_path) : false,
+            'classes_available' => array(),
+            'class_found' => false
+        );
+        
+        // Verificar diferentes variaciones de clase
+        $class_variations = array(
+            'Shuchkin\SimpleXLSXGen',
+            'SimpleXLSXGen', 
+            '\SimpleXLSXGen'
+        );
+        
+        foreach ($class_variations as $class_name) {
+            $exists = class_exists($class_name);
+            $info['classes_available'][$class_name] = $exists;
+            if ($exists && !$info['class_found']) {
+                $info['class_found'] = $class_name;
+            }
+        }
+        
+        return $info;
     }
 }
