@@ -1314,15 +1314,14 @@ class CP_Export {
             font-size: 11px;
             line-height: 1.4;
             margin: 0;
-            padding: 20px;
+            padding: 15px;
             color: #333;
         }
         
         .header {
             text-align: center;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #2c5a84;
-            padding-bottom: 20px;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
         }
         
         .logo-section {
@@ -1330,29 +1329,31 @@ class CP_Export {
         }
         
         .title {
-            font-size: 14px;
+            font-size: 12px;
             font-weight: bold;
-            color: #2c5a84;
+            color:rgb(54, 54, 54);
             margin-bottom: 10px;
             line-height: 1.3;
         }
         
         .subtitle {
-            font-size: 12px;
+            font-size: 14px;
             font-weight: bold;
             color: #2c5a84;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
         
         .search-criteria {
+            text-align: center;
             background: #f8f9fa;
             border: 1px solid #dee2e6;
             border-radius: 5px;
             padding: 15px;
-            margin-bottom: 20px;
+            margin-bottom: 5px;
         }
         
         .search-criteria h3 {
+            text-align: center
             font-size: 12px;
             margin: 0 0 10px 0;
             color: #2c5a84;
@@ -1385,9 +1386,8 @@ class CP_Export {
         }
         
         .legal-info {
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #dee2e6;
+            margin-top: 10px;
+            padding-top: 5px;
             font-size: 9px;
             line-height: 1.3;
         }
@@ -1481,23 +1481,12 @@ class CP_Export {
     </div>
     
     <div class="search-criteria">
-        <h3>CRITERIOS DE BÚSQUEDA UTILIZADOS:</h3>
+        <h3>No se encontraron resultados de procesos de contratación para los criterios de búsqueda:</h3>
         <div class="criteria-item"><strong>' . $tipo_identificacion . ':</strong> <span class="highlight">' . esc_html($numero_documento) . '</span></div>
         <div class="criteria-item"><strong>Fecha de inicio búsqueda:</strong> <span class="highlight">' . esc_html($fecha_inicio_display) . '</span></div>
         <div class="criteria-item"><strong>Fecha de fin búsqueda:</strong> <span class="highlight">' . esc_html($fecha_fin_display) . '</span></div>
         <div class="criteria-item"><strong>Fecha de la consulta:</strong> <span class="highlight">' . esc_html($fecha_consulta) . '</span></div>
         <div class="criteria-item"><strong>Tipo de consulta:</strong> <span class="highlight">' . esc_html(ucfirst($profile_type)) . '</span></div>
-    </div>
-    
-    <div class="no-results">
-        <h2>🔍 NO SE ENCONTRARON RESULTADOS</h2>
-        <p><strong>No se encontraron resultados de procesos de contratación para los criterios de búsqueda especificados.</strong></p>
-        <p>Se consultaron las siguientes fuentes de información:</p>
-        <ul style="text-align: left; display: inline-block; margin: 10px 0;">
-            <li>SECOPI - Sistema Electrónico de Contratación Pública</li>
-            <li>SECOPII - Sistema Extendido de Contratación Pública</li>
-            <li>TVEC - Tienda Virtual del Estado Colombiano</li>
-        </ul>
     </div>
     
     <div class="legal-info">
