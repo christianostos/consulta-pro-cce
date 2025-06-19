@@ -63,6 +63,14 @@ class CP_Frontend {
         // Hook para descarga automática de resultados del frontend
         add_action('wp_ajax_cp_auto_export_frontend_results', array($this, 'ajax_auto_export_frontend_results'));
         add_action('wp_ajax_nopriv_cp_auto_export_frontend_results', array($this, 'ajax_auto_export_frontend_results'));
+
+        // NUEVO: Hooks para exportación de PDF sin resultados
+        add_action('wp_ajax_cp_export_no_results_pdf', array($this, 'ajax_export_no_results_pdf'));
+        add_action('wp_ajax_nopriv_cp_export_no_results_pdf', array($this, 'ajax_export_no_results_pdf'));
+
+        // NUEVO: Hook para descarga automática de PDF sin resultados  
+        add_action('wp_ajax_cp_auto_export_no_results_pdf', array($this, 'ajax_auto_export_no_results_pdf'));
+        add_action('wp_ajax_nopriv_cp_auto_export_no_results_pdf', array($this, 'ajax_auto_export_no_results_pdf'));
     }
     
     /**
@@ -2193,5 +2201,124 @@ class CP_Frontend {
         );
         
         return $titles[$source] ?? strtoupper($source);
+    }
+
+    /**
+     * AJAX: Exportar PDF sin resultados (descarga manual)
+     */
+    public function ajax_export_no_results_pdf() {
+        // Verificar nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'cp_frontend_nonce')) {
+            wp_send_json_error(array('message' => 'Token de seguridad inválido'));
+        }
+        
+        // Obtener y sanitizar parámetros de búsqueda
+        $search_params = $_POST['search_params'] ?? array();
+        
+        // Sanitizar parámetros
+        $clean_params = array(
+            'profile_type' => sanitize_text_field($search_params['profile_type'] ?? ''),
+            'fecha_inicio' => sanitize_text_field($search_params['fecha_inicio'] ?? ''),
+            'fecha_fin' => sanitize_text_field($search_params['fecha_fin'] ?? ''),
+            'numero_documento' => sanitize_text_field($search_params['numero_documento'] ?? '')
+        );
+        
+        if (empty($clean_params['profile_type']) || empty($clean_params['numero_documento'])) {
+            wp_send_json_error(array('message' => 'Faltan parámetros de búsqueda requeridos'));
+        }
+        
+        try {
+            // Obtener instancia de la clase de exportación
+            $exporter = CP_Export::get_instance();
+            
+            // Verificar que dompdf esté disponible
+            if (!$exporter->is_dompdf_available()) {
+                wp_send_json_error(array('message' => 'PDF no está disponible. Librería dompdf no encontrada.'));
+            }
+            
+            // Exportar PDF sin resultados
+            $export_result = $exporter->export_no_results_pdf($clean_params);
+            
+            if ($export_result['success']) {
+                // Log de exportación manual exitosa
+                error_log("CP Frontend: Exportación manual de PDF sin resultados exitosa - {$export_result['filename']}");
+                
+                wp_send_json_success(array(
+                    'message' => 'PDF generado exitosamente',
+                    'download_url' => $export_result['download_url'],
+                    'filename' => $export_result['filename'],
+                    'file_size' => $export_result['file_size'],
+                    'download_token' => $export_result['download_token'],
+                    'document_type' => 'PDF'
+                ));
+            } else {
+                error_log("CP Frontend: Error en exportación manual de PDF sin resultados - " . $export_result['error']);
+                wp_send_json_error(array('message' => $export_result['error']));
+            }
+            
+        } catch (Exception $e) {
+            error_log('CP Frontend Manual PDF Export Error: ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error interno del servidor: ' . $e->getMessage()));
+        }
+    }
+    
+    /**
+     * AJAX: Descarga automática de PDF sin resultados
+     */
+    public function ajax_auto_export_no_results_pdf() {
+        // Verificar nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'cp_frontend_nonce')) {
+            wp_send_json_error(array('message' => 'Token de seguridad inválido'));
+        }
+        
+        // Obtener parámetros de búsqueda
+        $search_params = $_POST['search_params'] ?? array();
+        
+        // Sanitizar parámetros
+        $clean_params = array(
+            'profile_type' => sanitize_text_field($search_params['profile_type'] ?? ''),
+            'fecha_inicio' => sanitize_text_field($search_params['fecha_inicio'] ?? ''),
+            'fecha_fin' => sanitize_text_field($search_params['fecha_fin'] ?? ''),
+            'numero_documento' => sanitize_text_field($search_params['numero_documento'] ?? '')
+        );
+        
+        if (empty($clean_params['profile_type']) || empty($clean_params['numero_documento'])) {
+            wp_send_json_error(array('message' => 'Faltan parámetros de búsqueda requeridos'));
+        }
+        
+        try {
+            // Obtener instancia de la clase de exportación
+            $exporter = CP_Export::get_instance();
+            
+            // Verificar que dompdf esté disponible
+            if (!$exporter->is_dompdf_available()) {
+                wp_send_json_error(array('message' => 'PDF no está disponible'));
+            }
+            
+            // Exportar PDF sin resultados
+            $export_result = $exporter->export_no_results_pdf($clean_params);
+            
+            if ($export_result['success']) {
+                // Log de exportación automática exitosa
+                error_log("CP Frontend: Exportación automática de PDF sin resultados exitosa - {$export_result['filename']}");
+                
+                wp_send_json_success(array(
+                    'message' => 'Descarga automática de PDF iniciada',
+                    'download_url' => $export_result['download_url'],
+                    'filename' => $export_result['filename'],
+                    'file_size' => $export_result['file_size'],
+                    'download_token' => $export_result['download_token'],
+                    'document_type' => 'PDF',
+                    'auto_download' => true
+                ));
+            } else {
+                error_log("CP Frontend: Error en exportación automática de PDF sin resultados - " . $export_result['error']);
+                wp_send_json_error(array('message' => $export_result['error']));
+            }
+            
+        } catch (Exception $e) {
+            error_log('CP Frontend Auto PDF Export Error: ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error interno del servidor: ' . $e->getMessage()));
+        }
     }
 }

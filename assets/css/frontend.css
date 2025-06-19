@@ -1611,3 +1611,318 @@
     position: relative;
     margin-top: 25px !important;
 }
+
+/* ==========================================================================
+   EXPORTACIÓN DE PDF SIN RESULTADOS
+   ========================================================================== */
+
+.cp-export-pdf-actions {
+    background: #f8f9fa;
+    border: 1px solid #e3e4e6;
+    border-left: 4px solid #dc3545 !important;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+    text-align: center;
+    position: relative;
+}
+
+.cp-export-pdf-actions::before {
+    content: '📄';
+    position: absolute;
+    top: -8px;
+    left: 16px;
+    background: #f8f9fa;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    border: 1px solid #dee2e6;
+}
+
+.cp-export-pdf-no-results {
+    background: #dc3545 !important;
+    border-color: #dc3545 !important;
+    color: white !important;
+    padding: 12px 24px !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    border-radius: 6px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    transition: all 0.3s ease !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+}
+
+.cp-export-pdf-no-results:hover {
+    background: #c82333 !important;
+    border-color: #c82333 !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3) !important;
+}
+
+.cp-export-pdf-no-results:active {
+    transform: translateY(0) !important;
+    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3) !important;
+}
+
+.cp-export-pdf-no-results:disabled {
+    background: #6c757d !important;
+    border-color: #6c757d !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+.cp-export-pdf-no-results .dashicons {
+    font-size: 16px !important;
+    line-height: 1 !important;
+}
+
+/* Mensaje de éxito de exportación PDF */
+.cp-export-pdf-success {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    border: 1px solid #f5c6cb;
+    border-left: 4px solid #dc3545;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 15px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    animation: slideInDown 0.4s ease-out;
+}
+
+.cp-export-pdf-success .dashicons {
+    color: #721c24;
+    font-size: 20px;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.cp-export-pdf-success .cp-export-message {
+    color: #721c24;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.cp-export-pdf-success .cp-export-message strong {
+    color: #491217;
+    font-weight: 600;
+}
+
+.cp-export-pdf-success .cp-export-message small {
+    color: #6c757d;
+    font-size: 12px;
+}
+
+/* Mensaje de descarga automática de PDF */
+.cp-auto-download-pdf-message {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    border: 1px solid #f5c6cb;
+    border-left: 4px solid #dc3545;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 15px 0 25px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+    animation: autoDownloadSlideIn 0.5s ease-out;
+    box-shadow: 0 2px 8px rgba(220, 53, 69, 0.1);
+    position: relative;
+}
+
+.cp-auto-download-pdf-message .cp-auto-download-icon {
+    color: #721c24;
+    font-size: 24px;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.cp-auto-download-pdf-message .cp-auto-download-icon .dashicons {
+    animation: downloadBounce 2s ease-in-out infinite;
+}
+
+.cp-auto-download-pdf-message .cp-auto-download-content {
+    color: #721c24;
+    font-size: 14px;
+    line-height: 1.5;
+    flex: 1;
+}
+
+.cp-auto-download-pdf-message .cp-auto-download-content strong {
+    color: #491217;
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.cp-auto-download-pdf-message .cp-auto-download-filename {
+    color: #491217;
+    font-weight: 500;
+    font-family: 'Courier New', monospace;
+    background: rgba(73, 18, 23, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    display: inline-block;
+    margin: 4px 0;
+}
+
+.cp-auto-download-pdf-message .cp-auto-download-details {
+    color: #6c757d;
+    font-size: 12px;
+    font-style: italic;
+}
+
+.cp-auto-download-pdf-message .cp-auto-download-close {
+    color: #6c757d;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.cp-auto-download-pdf-message .cp-auto-download-close:hover {
+    color: #495057;
+    background: rgba(108, 117, 125, 0.1);
+}
+
+.cp-auto-download-pdf-message .cp-auto-download-close .dashicons {
+    font-size: 16px;
+}
+
+/* Efecto de progreso para PDF */
+.cp-auto-download-pdf-message::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #dc3545, #fd7e14, #dc3545);
+    border-radius: 8px 8px 0 0;
+    animation: downloadProgress 3s ease-in-out;
+}
+
+/* Mejorar el mensaje de sin resultados */
+.cp-no-results {
+    text-align: center;
+    padding: 40px;
+    color: #6c757d;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+}
+
+.cp-no-results .dashicons {
+    font-size: 48px;
+    margin-bottom: 15px;
+    opacity: 0.5;
+    color: #dc3545;
+}
+
+.cp-no-results h4 {
+    color: #495057;
+    margin-bottom: 10px;
+    font-size: 18px;
+}
+
+.cp-no-results p {
+    margin: 10px 0;
+    font-size: 14px;
+}
+
+.cp-no-results-info {
+    background: #e7f3ff;
+    border: 1px solid #b8daff;
+    border-radius: 6px;
+    padding: 15px;
+    margin-top: 20px;
+    text-align: left;
+}
+
+.cp-no-results-info p {
+    margin: 5px 0;
+    color: #004085;
+}
+
+.cp-no-results-info small {
+    font-size: 12px;
+}
+
+/* Responsive para PDF */
+@media (max-width: 768px) {
+    .cp-export-pdf-actions {
+        padding: 15px;
+    }
+    
+    .cp-export-pdf-no-results {
+        padding: 10px 20px !important;
+        font-size: 13px !important;
+        width: 100%;
+        justify-content: center !important;
+    }
+    
+    .cp-auto-download-pdf-message {
+        padding: 12px 16px;
+        gap: 12px;
+        margin: 10px 0 20px 0;
+    }
+    
+    .cp-auto-download-pdf-message .cp-auto-download-icon {
+        font-size: 20px;
+    }
+    
+    .cp-auto-download-pdf-message .cp-auto-download-content {
+        font-size: 13px;
+    }
+    
+    .cp-auto-download-pdf-message .cp-auto-download-content strong {
+        font-size: 14px;
+    }
+    
+    .cp-auto-download-pdf-message .cp-auto-download-filename {
+        font-size: 11px;
+        padding: 1px 4px;
+    }
+    
+    .cp-auto-download-pdf-message .cp-auto-download-details {
+        font-size: 11px;
+    }
+}
+
+@media (max-width: 480px) {
+    .cp-auto-download-pdf-message {
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+    }
+    
+    .cp-auto-download-pdf-message .cp-auto-download-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+    }
+    
+    .cp-auto-download-pdf-message .cp-auto-download-filename {
+        display: block;
+        word-break: break-all;
+    }
+    
+    .cp-no-results {
+        padding: 20px;
+    }
+    
+    .cp-no-results .dashicons {
+        font-size: 36px;
+    }
+    
+    .cp-no-results h4 {
+        font-size: 16px;
+    }
+    
+    .cp-no-results-info {
+        padding: 10px;
+    }
+}

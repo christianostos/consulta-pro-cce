@@ -353,6 +353,9 @@ jQuery(document).ready(function($) {
             log('Búsqueda ya en progreso, ignorando nueva solicitud');
             return false;
         }
+
+        // NUEVO: Limpiar datos previos antes de nueva búsqueda
+        clearStoredResults();
         
         // Marcar búsqueda en progreso
         searchInProgress = true;
@@ -953,24 +956,58 @@ jQuery(document).ready(function($) {
         var $resultsContent = $('.cp-results-content');
         
         if (!data.has_results) {
+            // *** NUEVO: Manejar caso sin resultados con PDF ***
+            
+            // Almacenar parámetros de búsqueda para PDF
+            var searchParams = {
+                profile_type: selectedProfile,
+                fecha_inicio: $('#cp-fecha-inicio').val(),
+                fecha_fin: $('#cp-fecha-fin').val(),
+                numero_documento: $('#cp-numero-documento').val()
+            };
+            
+            storeNoResultsSearchParams(searchParams);
+            
+            // Mostrar mensaje de sin resultados
             $resultsContent.html(createNoResultsHTML(data.message));
-        } else {
-            $resultsContent.html(createResultsHTML(data.results, data.total_records, data.is_partial, data.timeout_message));
-        }
-        
-        // Mostrar contenedor de resultados
-        $resultsContainer.show();
-        
-        // Scroll a los resultados
-        $('html, body').animate({
-            scrollTop: $resultsContainer.offset().top - 50
-        }, 500);
-        
-        // Si es resultado parcial, mostrar mensaje adicional
-        if (data.is_partial && data.timeout_message) {
-            setTimeout(function() {
-                showTimeoutInfo(data.timeout_message);
+            
+            // Mostrar contenedor de resultados
+            $resultsContainer.show();
+            
+            // Scroll a los resultados
+            $('html, body').animate({
+                scrollTop: $resultsContainer.offset().top - 50
             }, 500);
+            
+            // *** AGREGAR BOTÓN MANUAL Y DESCARGA AUTOMÁTICA DE PDF ***
+            setTimeout(function() {
+                addPDFButtonToNoResults();
+                
+                // Disparar descarga automática de PDF después de agregar el botón manual
+                setTimeout(function() {
+                    triggerAutoDownloadPDF(searchParams);
+                }, 500);
+                
+            }, 500);
+            
+        } else {
+            // *** CASO CON RESULTADOS (código existente) ***
+            $resultsContent.html(createResultsHTML(data.results, data.total_records, data.is_partial, data.timeout_message));
+            
+            // Mostrar contenedor de resultados
+            $resultsContainer.show();
+            
+            // Scroll a los resultados
+            $('html, body').animate({
+                scrollTop: $resultsContainer.offset().top - 50
+            }, 500);
+            
+            // Si es resultado parcial, mostrar mensaje adicional
+            if (data.is_partial && data.timeout_message) {
+                setTimeout(function() {
+                    showTimeoutInfo(data.timeout_message);
+                }, 500);
+            }
         }
     }
     
@@ -1004,6 +1041,10 @@ jQuery(document).ready(function($) {
                 <span class="dashicons dashicons-search"></span>
                 <h4>No se encontraron resultados</h4>
                 <p>${message || cp_frontend_ajax.messages.no_results}</p>
+                <div class="cp-no-results-info">
+                    <p><small>Se consultaron todas las fuentes de información disponibles: SECOPI, SECOPII y TVEC.</small></p>
+                    <p><small>Puede descargar un certificado oficial de esta consulta en formato PDF.</small></p>
+                </div>
             </div>
         `;
     }
@@ -1585,18 +1626,315 @@ jQuery(document).ready(function($) {
      * NUEVO: Limpiar resultados almacenados
      */
     function clearStoredResults() {
+        // Limpiar resultados de Excel
         window.currentSearchResults = null;
         window.currentSearchParams = null;
         window.currentSearchProfile = null;
         
-        // Remover botones de exportación
+        // Remover botones de exportación de Excel
         $('.cp-export-actions').remove();
         $('.cp-export-success').remove();
+        $('.cp-auto-download-message').remove();
+        
+        // *** NUEVO: Limpiar datos de PDF sin resultados ***
+        clearNoResultsData();
         
         // Desactivar eventos de exportación
         $(document).off('click.cp-export');
+        $(document).off('click.cp-pdf-export');
         
-        log('Resultados almacenados limpiados');
+        log('Resultados almacenados limpiados (Excel y PDF)');
+    }
+
+    /**
+     * NUEVO: Disparar descarga automática de PDF sin resultados
+     */
+    function triggerAutoDownloadPDF(searchParams) {
+        log('Iniciando descarga automática de PDF sin resultados');
+        
+        // Verificar que tenemos parámetros de búsqueda válidos
+        if (!searchParams || !searchParams.profile_type || !searchParams.numero_documento) {
+            log('No hay parámetros suficientes para descarga automática de PDF');
+            return;
+        }
+        
+        // Realizar solicitud AJAX para descarga automática de PDF
+        $.ajax({
+            url: cp_frontend_ajax.url,
+            type: 'POST',
+            data: {
+                action: 'cp_auto_export_no_results_pdf',
+                nonce: cp_frontend_ajax.nonce,
+                search_params: searchParams
+            },
+            dataType: 'json',
+            timeout: 30000, // 30 segundos
+            success: function(response) {
+                log('Respuesta de descarga automática de PDF:', response);
+                
+                if (response.success) {
+                    // Mostrar mensaje de descarga automática iniciada
+                    showAutoDownloadPDFMessage(response.data);
+                    
+                    // Iniciar descarga automática en el navegador
+                    setTimeout(function() {
+                        log('Iniciando descarga automática de PDF: ' + response.data.download_url);
+                        
+                        // Crear enlace temporal para descarga
+                        var tempLink = document.createElement('a');
+                        tempLink.href = response.data.download_url;
+                        tempLink.download = response.data.filename || 'sin_resultados.pdf';
+                        tempLink.style.display = 'none';
+                        document.body.appendChild(tempLink);
+                        tempLink.click();
+                        document.body.removeChild(tempLink);
+                        
+                    }, 1000); // Esperar 1 segundo antes de disparar la descarga
+                    
+                } else {
+                    log('Error en descarga automática de PDF:', response.data.message);
+                    // No mostrar error al usuario para no interrumpir la experiencia
+                    // Solo registrar en consola
+                }
+            },
+            error: function(xhr, status, error) {
+                log('Error AJAX en descarga automática de PDF:', { xhr: xhr, status: status, error: error });
+                // No mostrar error al usuario para descarga automática
+            }
+        });
+    }
+
+    /**
+     * NUEVO: Exportar PDF sin resultados (descarga manual)
+     */
+    function exportNoResultsPDF() {
+        log('Función exportNoResultsPDF() llamada');
+        
+        // Verificar que hay parámetros de búsqueda almacenados
+        if (!window.currentSearchParams || !window.currentSearchParams.profile_type) {
+            log('No hay parámetros de búsqueda para exportar PDF');
+            showError('No hay parámetros de búsqueda disponibles');
+            return;
+        }
+        
+        // Mostrar indicador de carga
+        var $exportButton = $('.cp-export-pdf-no-results');
+        if ($exportButton.length === 0) {
+            log('No se encontró el botón de exportación PDF');
+            showError('Botón de exportación no encontrado');
+            return;
+        }
+        
+        var originalText = $exportButton.html();
+        
+        $exportButton.prop('disabled', true).html(
+            '<span class="dashicons dashicons-update-alt cp-spin"></span> Generando PDF...'
+        );
+        
+        log('Iniciando exportación manual de PDF sin resultados');
+        
+        // Realizar solicitud AJAX
+        $.ajax({
+            url: cp_frontend_ajax.url,
+            type: 'POST',
+            data: {
+                action: 'cp_export_no_results_pdf',
+                nonce: cp_frontend_ajax.nonce,
+                search_params: window.currentSearchParams
+            },
+            dataType: 'json',
+            timeout: 60000, // 60 segundos de timeout
+            success: function(response) {
+                log('Respuesta AJAX de PDF recibida:', response);
+                
+                if (response.success) {
+                    log('Exportación de PDF exitosa: ' + response.data.filename);
+                    
+                    // Mostrar mensaje de éxito
+                    showExportPDFSuccess(response.data);
+                    
+                    // Iniciar descarga automática
+                    setTimeout(function() {
+                        log('Iniciando descarga de PDF: ' + response.data.download_url);
+                        window.location.href = response.data.download_url;
+                    }, 1000);
+                    
+                } else {
+                    log('Error en exportación de PDF: ' + (response.data ? response.data.message : 'Sin mensaje de error'));
+                    showError('Error al generar PDF: ' + (response.data ? response.data.message : 'Error desconocido'));
+                }
+            },
+            error: function(xhr, status, error) {
+                log('Error AJAX en exportación de PDF:', { xhr: xhr, status: status, error: error });
+                
+                if (status === 'timeout') {
+                    showError('La generación del PDF está tomando demasiado tiempo. Por favor, intente nuevamente.');
+                } else {
+                    showError('Error de conexión al generar el archivo PDF: ' + error);
+                }
+            },
+            complete: function() {
+                // Restaurar botón
+                $exportButton.prop('disabled', false).html(originalText);
+                log('Exportación de PDF completada, botón restaurado');
+            }
+        });
+    }
+
+    /**
+     * NUEVO: Mostrar mensaje de descarga automática de PDF
+     */
+    function showAutoDownloadPDFMessage(downloadData) {
+        // Remover mensajes anteriores de descarga automática
+        $('.cp-auto-download-pdf-message').remove();
+        
+        var message = `
+            <div class="cp-auto-download-pdf-message">
+                <div class="cp-auto-download-icon">
+                    <span class="dashicons dashicons-pdf"></span>
+                </div>
+                <div class="cp-auto-download-content">
+                    <strong>✓ Descarga automática de PDF iniciada</strong><br>
+                    <span class="cp-auto-download-filename">${escapeHtml(downloadData.filename || 'sin_resultados.pdf')}</span><br>
+                    <small class="cp-auto-download-details">
+                        ${downloadData.file_size || ''} • Certificado de búsqueda sin resultados
+                    </small>
+                </div>
+                <div class="cp-auto-download-close">
+                    <span class="dashicons dashicons-no-alt"></span>
+                </div>
+            </div>
+        `;
+        
+        // Agregar al inicio del contenedor de resultados o donde esté visible
+        if ($('.cp-results-container').length > 0) {
+            $('.cp-results-container').prepend(message);
+        } else {
+            $('.cp-form-step.active').prepend(message);
+        }
+        
+        // Manejar clic en cerrar
+        $('.cp-auto-download-close').on('click', function() {
+            $('.cp-auto-download-pdf-message').fadeOut(300, function() {
+                $(this).remove();
+            });
+        });
+        
+        // Auto-remover después de 10 segundos
+        setTimeout(function() {
+            $('.cp-auto-download-pdf-message').fadeOut(500, function() {
+                $(this).remove();
+            });
+        }, 10000);
+        
+        log('Mensaje de descarga automática de PDF mostrado');
+    }
+
+    /**
+     * NUEVO: Mostrar mensaje de éxito de exportación de PDF
+     */
+    function showExportPDFSuccess(exportData) {
+        var message = `
+            PDF generado exitosamente:<br>
+            <strong>${escapeHtml(exportData.filename)}</strong><br>
+            ${exportData.file_size}<br>
+            <small>La descarga comenzará automáticamente...</small>
+        `;
+        
+        // Crear mensaje personalizado para exportación de PDF
+        $('.cp-export-pdf-success').remove();
+        
+        var successHtml = `
+            <div class="cp-export-pdf-success">
+                <span class="dashicons dashicons-pdf"></span>
+                <div class="cp-export-message">${message}</div>
+            </div>
+        `;
+        
+        $('.cp-no-results').after(successHtml);
+        
+        // Auto-remover después de 8 segundos
+        setTimeout(function() {
+            $('.cp-export-pdf-success').fadeOut(300, function() {
+                $(this).remove();
+            });
+        }, 8000);
+    }
+
+    /**
+     * NUEVO: Agregar botón de exportación PDF cuando no hay resultados
+     */
+    function addPDFButtonToNoResults() {
+        log('Función addPDFButtonToNoResults() llamada');
+        
+        // Verificar si ya existe el botón
+        if ($('.cp-export-pdf-actions').length > 0) {
+            log('Botón de exportación PDF ya existe, saltando');
+            return;
+        }
+        
+        // Verificar que existe el elemento donde agregar el botón
+        if ($('.cp-no-results').length === 0) {
+            log('No se encontró .cp-no-results para agregar el botón PDF');
+            return;
+        }
+        
+        var exportButtonsHtml = `
+            <div class="cp-export-pdf-actions">
+                <button type="button" class="cp-btn cp-btn-secondary cp-export-pdf-no-results">
+                    <span class="dashicons dashicons-pdf"></span>
+                    Descargar Certificado PDF (Manual)
+                </button>
+                <small class="cp-export-help">
+                    El certificado también se descarga automáticamente al completar la búsqueda.<br>
+                    Use este botón si necesita descargar nuevamente el certificado PDF.
+                </small>
+            </div>
+        `;
+        
+        // Agregar después del mensaje de sin resultados
+        $('.cp-no-results').after(exportButtonsHtml);
+        
+        // Verificar que el botón se agregó correctamente
+        if ($('.cp-export-pdf-no-results').length > 0) {
+            log('Botón de exportación PDF agregado correctamente');
+            
+            // Vincular evento click con delegación de eventos
+            $(document).off('click.cp-pdf-export').on('click.cp-pdf-export', '.cp-export-pdf-no-results', function(e) {
+                e.preventDefault();
+                log('Click en botón de exportación PDF manual detectado');
+                exportNoResultsPDF();
+            });
+            
+            log('Evento click vinculado al botón de exportación PDF manual');
+        } else {
+            log('ERROR: El botón PDF no se agregó correctamente al DOM');
+        }
+    }
+
+    /**
+     * NUEVO: Almacenar parámetros para exportación de PDF sin resultados
+     */
+    function storeNoResultsSearchParams(searchParams) {
+        window.currentSearchParams = searchParams;
+        window.currentSearchProfile = searchParams.profile_type;
+        
+        log('Parámetros de búsqueda almacenados para PDF sin resultados:', searchParams);
+    }
+
+    /**
+     * NUEVO: Limpiar parámetros almacenados y botones PDF
+     */
+    function clearNoResultsData() {
+        // Remover botones de exportación PDF
+        $('.cp-export-pdf-actions').remove();
+        $('.cp-export-pdf-success').remove();
+        $('.cp-auto-download-pdf-message').remove();
+        
+        // Desactivar eventos de exportación PDF
+        $(document).off('click.cp-pdf-export');
+        
+        log('Datos de PDF sin resultados limpiados');
     }
     
     // Log de inicialización
@@ -1611,7 +1949,7 @@ jQuery(document).ready(function($) {
         searchInProgress: function() { return searchInProgress; },
         currentSearchId: function() { return currentSearchId; },
         cancelSearch: cancelSearch,
-        // NUEVAS funciones para debug de exportación
+        // Funciones de Excel
         exportToExcel: exportResultsToExcel,
         checkStoredResults: function() {
             return {
@@ -1624,6 +1962,21 @@ jQuery(document).ready(function($) {
                 profile: window.currentSearchProfile
             };
         },
-        addExportButton: addExportButtonToResults
+        addExportButton: addExportButtonToResults,
+        // NUEVAS funciones de PDF para debugging
+        exportPDF: exportNoResultsPDF,
+        addPDFButton: addPDFButtonToNoResults,
+        triggerAutoPDF: triggerAutoDownloadPDF,
+        checkNoResultsParams: function() {
+            return {
+                hasParams: !!window.currentSearchParams,
+                searchParams: window.currentSearchParams,
+                profile: window.currentSearchProfile
+            };
+        },
+        clearAllData: function() {
+            clearStoredResults();
+            clearNoResultsData();
+        }
     };
 });

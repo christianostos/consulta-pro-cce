@@ -1135,4 +1135,435 @@ class CP_Export {
         
         return $info;
     }
+
+    /**
+     * Cargar dompdf si está disponible
+     */
+    private function load_dompdf() {
+        $dompdf_path = CP_PLUGIN_PATH . 'lib/dompdf/autoload.inc.php';
+        
+        error_log('CP Export: Intentando cargar dompdf desde: ' . $dompdf_path);
+        
+        if (file_exists($dompdf_path)) {
+            require_once $dompdf_path;
+            error_log('CP Export: dompdf cargado exitosamente');
+            return true;
+        } else {
+            error_log('CP Export: dompdf no encontrado en: ' . $dompdf_path);
+            return false;
+        }
+    }
+    
+    /**
+     * Verificar si dompdf está disponible
+     */
+    public function is_dompdf_available() {
+        if (!$this->load_dompdf()) {
+            return false;
+        }
+        
+        return class_exists('Dompdf\Dompdf');
+    }
+    
+    /**
+     * Exportar PDF sin resultados
+     */
+    public function export_no_results_pdf($search_params) {
+        error_log('CP Export: export_no_results_pdf iniciada');
+        
+        if (!$this->load_dompdf()) {
+            return array(
+                'success' => false,
+                'error' => 'dompdf no está disponible'
+            );
+        }
+        
+        if (!class_exists('Dompdf\Dompdf')) {
+            return array(
+                'success' => false,
+                'error' => 'Clase Dompdf no encontrada'
+            );
+        }
+        
+        try {
+            // Generar nombre de archivo
+            $filename = $this->generate_no_results_pdf_filename($search_params);
+            $filepath = $this->temp_dir . $filename;
+            
+            // Generar HTML del PDF
+            $html = $this->generate_no_results_pdf_html($search_params);
+            
+            // Crear instancia de dompdf
+            $dompdf = new \Dompdf\Dompdf();
+            
+            // Configurar opciones
+            $options = $dompdf->getOptions();
+            $options->set('defaultFont', 'DejaVu Sans');
+            $options->set('isRemoteEnabled', true);
+            $options->set('isHtml5ParserEnabled', true);
+            $dompdf->setOptions($options);
+            
+            // Cargar HTML
+            $dompdf->loadHtml($html);
+            
+            // Configurar tamaño de papel
+            $dompdf->setPaper('A4', 'portrait');
+            
+            // Renderizar PDF
+            $dompdf->render();
+            
+            // Obtener contenido del PDF
+            $pdf_content = $dompdf->output();
+            
+            // Guardar archivo
+            $result = file_put_contents($filepath, $pdf_content);
+            
+            if ($result === false) {
+                throw new Exception('No se pudo guardar el archivo PDF');
+            }
+            
+            // Verificar que el archivo se creó
+            if (!file_exists($filepath)) {
+                throw new Exception('El archivo PDF no se creó correctamente');
+            }
+            
+            $file_size = filesize($filepath);
+            if ($file_size === 0) {
+                throw new Exception('El archivo PDF generado está vacío');
+            }
+            
+            // Crear token de descarga
+            $download_token = $this->create_download_token($filename);
+            
+            error_log('CP Export: PDF sin resultados creado exitosamente - ' . $filename . ' (' . $file_size . ' bytes)');
+            
+            return array(
+                'success' => true,
+                'filename' => $filename,
+                'download_token' => $download_token,
+                'download_url' => $this->get_download_url($download_token),
+                'file_size' => $this->format_file_size($file_size),
+                'document_type' => 'PDF'
+            );
+            
+        } catch (Exception $e) {
+            error_log('CP Export: Error generando PDF sin resultados - ' . $e->getMessage());
+            
+            return array(
+                'success' => false,
+                'error' => $e->getMessage()
+            );
+        }
+    }
+    
+    /**
+     * Generar nombre de archivo para PDF sin resultados
+     */
+    private function generate_no_results_pdf_filename($search_params) {
+        $timestamp = date('Y-m-d_H-i-s');
+        $profile_str = isset($search_params['profile_type']) ? ucfirst($search_params['profile_type']) : 'Consulta';
+        
+        $documento = '';
+        if (!empty($search_params['numero_documento'])) {
+            $documento = '_Doc-' . substr($search_params['numero_documento'], 0, 8);
+        }
+        
+        $fecha_range = '';
+        if (!empty($search_params['fecha_inicio']) && !empty($search_params['fecha_fin'])) {
+            $fecha_range = '_' . $search_params['fecha_inicio'] . '_a_' . $search_params['fecha_fin'];
+        }
+        
+        return "SinResultados_ConsultaProcesos_{$profile_str}{$documento}{$fecha_range}_{$timestamp}.pdf";
+    }
+    
+    /**
+     * Generar HTML para PDF sin resultados
+     */
+    private function generate_no_results_pdf_html($search_params) {
+        $numero_documento = $search_params['numero_documento'] ?? '';
+        $fecha_inicio = $search_params['fecha_inicio'] ?? '';
+        $fecha_fin = $search_params['fecha_fin'] ?? '';
+        $profile_type = $search_params['profile_type'] ?? '';
+        
+        // Formatear fechas para mostrar
+        $fecha_inicio_display = !empty($fecha_inicio) ? date('Y-m-d', strtotime($fecha_inicio)) : 'N/A';
+        $fecha_fin_display = !empty($fecha_fin) ? date('Y-m-d', strtotime($fecha_fin)) : 'N/A';
+        $fecha_consulta = date('Y-m-d H:i');
+        
+        // Determinar tipo de identificación según el perfil
+        $tipo_identificacion = ($profile_type === 'entidades') ? 'NIT' : 'Documento';
+
+        // Obtener logo
+        $logo_id = get_theme_mod('custom_logo');
+        $logo_path = get_attached_file($logo_id);
+
+        if ($logo_path){
+            $base64 = base64_encode(file_get_contents($logo_path));
+            $mime = mime_content_type($logo_path);
+        }
+
+        $html = '
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Consulta de Procesos - Sin Resultados</title>
+    <style>
+        body {
+            font-family: "DejaVu Sans", Arial, sans-serif;
+            font-size: 11px;
+            line-height: 1.4;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #2c5a84;
+            padding-bottom: 20px;
+        }
+        
+        .logo-section {
+            margin-bottom: 15px;
+        }
+        
+        .title {
+            font-size: 14px;
+            font-weight: bold;
+            color: #2c5a84;
+            margin-bottom: 10px;
+            line-height: 1.3;
+        }
+        
+        .subtitle {
+            font-size: 12px;
+            font-weight: bold;
+            color: #2c5a84;
+            margin-bottom: 20px;
+        }
+        
+        .search-criteria {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .search-criteria h3 {
+            font-size: 12px;
+            margin: 0 0 10px 0;
+            color: #2c5a84;
+        }
+        
+        .criteria-item {
+            margin-bottom: 5px;
+        }
+        
+        .no-results {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-left: 4px solid #f39c12;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+            border-radius: 5px;
+        }
+        
+        .no-results h2 {
+            color: #856404;
+            font-size: 14px;
+            margin: 0 0 10px 0;
+        }
+        
+        .no-results p {
+            color: #856404;
+            margin: 5px 0;
+            font-size: 11px;
+        }
+        
+        .legal-info {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #dee2e6;
+            font-size: 9px;
+            line-height: 1.3;
+        }
+        
+        .legal-info h4 {
+            font-size: 10px;
+            margin: 15px 0 8px 0;
+            color: #2c5a84;
+        }
+        
+        .legal-info p {
+            margin: 5px 0;
+            text-align: justify;
+        }
+        
+        .legal-info ol {
+            padding-left: 15px;
+        }
+        
+        .legal-info li {
+            margin-bottom: 8px;
+            text-align: justify;
+        }
+        
+        .footer {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            text-align: center;
+            font-size: 8px;
+            color: #666;
+            border-top: 1px solid #dee2e6;
+            padding-top: 10px;
+        }
+        
+        .highlight {
+            background: #e7f3ff;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        
+        .text-center {
+            text-align: center;
+        }
+        
+        .text-justify {
+            text-align: justify;
+        }
+        
+        .mb-10 {
+            margin-bottom: 10px;
+        }
+        
+        .mb-15 {
+            margin-bottom: 15px;
+        }
+        
+        .generated-info {
+            background: #e7f3ff;
+            border: 1px solid #b8daff;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 20px;
+            font-size: 10px;
+        }
+        
+        .generated-info strong {
+            color: #004085;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo-section">
+            <div class="cp-radio-icon">
+                <img src="data:' . $mime . ';base64,' . $base64 . '" style="height:80px; display:block; margin:auto;" />
+                <p>' . esc_url($logo_url) . ' </p>
+            </div>
+        </div>
+        
+        <div class="title">
+            Consulta en línea de contratos suscritos en el<br>
+            Sistema Electrónico de Contratación Pública
+        </div>
+        
+        <div class="subtitle">
+            LA AGENCIA NACIONAL DE CONTRATACIÓN PÚBLICA<br>
+            COLOMBIA COMPRA EFICIENTE – ANCP - CCE
+        </div>
+    </div>
+    
+    <div class="search-criteria">
+        <h3>CRITERIOS DE BÚSQUEDA UTILIZADOS:</h3>
+        <div class="criteria-item"><strong>' . $tipo_identificacion . ':</strong> <span class="highlight">' . esc_html($numero_documento) . '</span></div>
+        <div class="criteria-item"><strong>Fecha de inicio búsqueda:</strong> <span class="highlight">' . esc_html($fecha_inicio_display) . '</span></div>
+        <div class="criteria-item"><strong>Fecha de fin búsqueda:</strong> <span class="highlight">' . esc_html($fecha_fin_display) . '</span></div>
+        <div class="criteria-item"><strong>Fecha de la consulta:</strong> <span class="highlight">' . esc_html($fecha_consulta) . '</span></div>
+        <div class="criteria-item"><strong>Tipo de consulta:</strong> <span class="highlight">' . esc_html(ucfirst($profile_type)) . '</span></div>
+    </div>
+    
+    <div class="no-results">
+        <h2>🔍 NO SE ENCONTRARON RESULTADOS</h2>
+        <p><strong>No se encontraron resultados de procesos de contratación para los criterios de búsqueda especificados.</strong></p>
+        <p>Se consultaron las siguientes fuentes de información:</p>
+        <ul style="text-align: left; display: inline-block; margin: 10px 0;">
+            <li>SECOPI - Sistema Electrónico de Contratación Pública</li>
+            <li>SECOPII - Sistema Extendido de Contratación Pública</li>
+            <li>TVEC - Tienda Virtual del Estado Colombiano</li>
+        </ul>
+    </div>
+    
+    <div class="legal-info">
+        <p class="text-justify">
+            Es importante resaltar que de acuerdo con el <strong>artículo 3 de la Ley 1712 de 2014</strong>, sobre el 
+            principio de calidad de la información, las Entidades Estatales son responsables de la 
+            oportunidad, objetividad y veracidad de la información que publican.
+        </p>
+        
+        <p class="text-justify mb-15">
+            Finalmente, se le informa que los procesos de contratación y los Planes Anuales de Adquisiciones 
+            adelantados por las Entidades Estatales pueden ser consultados en cualquier momento a través 
+            de la plataforma de Datos Abiertos del Estado Colombiano (<strong>www.datos.gov.co</strong>), los cuales son 
+            actualizados diariamente.
+        </p>
+        
+        <h4>** LA AGENCIA NACIONAL DE CONTRATACIÓN PÚBLICA -COLOMBIA COMPRA EFICIENTE- INFORMA:</h4>
+        
+        <ol>
+            <li class="text-justify">
+                La calidad de la información del SECOP es responsabilidad de las Entidades Estatales y por lo tanto las 
+                inconsistencias encontradas o la ausencia de información es responsabilidad de estas.
+            </li>
+            
+            <li class="text-justify">
+                La información de los Procesos de Contratación comprendida en el Sistema Electrónico de Contratación 
+                Pública (SECOP) es publicada por las Entidades Estatales y puede contener errores de digitación en la 
+                identificación del contratista (cédula de ciudadanía o cédula de extranjería), nombre, objeto, valor del 
+                contrato, lugar de ejecución; o puede presentar inconsistencias, por duplicidad de nombre, número de 
+                identificación o ausencia de datos.
+            </li>
+            
+            <li class="text-justify">
+                Colombia Compra Eficiente no es responsable por la información publicada en el SECOP si requiere 
+                información o Documentos del Proceso debe solicitarlos a la Entidad Estatal que adelantó el Proceso 
+                de Contratación respectivo.
+            </li>
+            
+            <li class="text-justify">
+                Colombia Compra Eficiente en línea con la política pública de datos abiertos de Colombia liderada por el 
+                Ministerio de las Tecnologías de la Información y las Comunicaciones (MinTic) y con la iniciativa de la 
+                Alianza para las Contrataciones Abiertas (Open Contracting Partnership) publica los datos consolidados 
+                del Sistema Electrónico para la Contratación Pública -SECOP a través del portal de Datos Abiertos 
+                disponible en: <strong>https://www.datos.gov.co/</strong>
+            </li>
+        </ol>
+    </div>
+    
+    <div class="generated-info">
+        <p class="text-center">
+            <strong>Documento generado automáticamente por el Sistema de Consulta de Procesos</strong><br>
+            Fecha de generación: ' . date('Y-m-d H:i:s') . '<br>
+            Este documento certifica que se realizó una búsqueda exhaustiva en las bases de datos oficiales.
+        </p>
+    </div>
+    
+    <div class="footer">
+        <p>
+            <strong>Agencia Nacional de Contratación Pública - Colombia Compra Eficiente</strong><br>
+            Tel. (601)7956600 • Carrera 7 No. 26 – 20 Piso 17 • Bogotá - Colombia<br>
+            <strong>www.colombiacompra.gov.co</strong>
+        </p>
+    </div>
+</body>
+</html>';
+        
+        return $html;
+    }
 }
