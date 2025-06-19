@@ -711,6 +711,9 @@ jQuery(document).ready(function($) {
     function completeSearch(progressData) {
         log('Búsqueda completada con ' + (progressData.total_records || 0) + ' registros');
         
+        // IMPORTANTE: Preservar currentSearchId antes de resetear
+        var searchIdForDownload = currentSearchId;
+        
         // Detener polling
         stopProgressPolling();
         
@@ -739,19 +742,29 @@ jQuery(document).ready(function($) {
                     total_records: progressData.total_records
                 });
                 
-                // CRÍTICO: Agregar botón SOLO después de mostrar resultados exitosamente
+                // CRÍTICO: Agregar botón MANUAL después de mostrar resultados
                 setTimeout(function() {
                     addExportButtonToResults();
+                    
+                    // **FUNCIONALIDAD: Disparar descarga automática CON search_id preservado**
+                    setTimeout(function() {
+                        triggerAutoDownload(searchIdForDownload); // Pasar el ID preservado
+                    }, 500); // Esperar 0.5 segundos después de agregar el botón manual
+                    
                 }, 500);
                 
             } else {
                 displayResults({
                     has_results: false,
-                    message: 'No se encontraron resultados para los criterios especificados'
+                    message: 'No se encontraron resultados de procesos de contratación para los criterios especificados'
                 });
             }
             
-            resetSearchState();
+            // IMPORTANTE: Resetear estado DESPUÉS de la descarga automática
+            setTimeout(function() {
+                resetSearchState();
+            }, 2000); // Dar tiempo para que se complete la descarga automática
+            
         }, 1500); // Pausa de 1.5 segundos para mostrar el progreso completo
     }
     
@@ -828,6 +841,21 @@ jQuery(document).ready(function($) {
                 }, 500);
                 
             }, 2000); // Esperar 2 segundos para que se vea el mensaje de error
+
+            // Agregar botón de exportación también para resultados parciales
+            setTimeout(function() {
+                addExportButtonToResults();
+                
+                // **FUNCIONALIDAD: También disparar descarga automática para resultados parciales**
+                if (totalRecords > 0) {
+                    setTimeout(function() {
+                        // Preservar el currentSearchId antes de que se resetee
+                        var searchIdForPartialDownload = currentSearchId;
+                        triggerAutoDownload(searchIdForPartialDownload);
+                    }, 500);
+                }
+                
+            }, 500);
             
         } else {
             // No hay resultados, solo mostrar error de timeout
@@ -1331,6 +1359,128 @@ jQuery(document).ready(function($) {
             }
         });
     }
+
+    /**
+     * NUEVO: Disparar descarga automática
+     */
+    function triggerAutoDownload(searchId) {
+        log('Iniciando descarga automática con search_id: ' + searchId);
+        
+        // Verificar que tenemos un search_id válido
+        if (!searchId) {
+            log('No hay search_id para descarga automática');
+            return;
+        }
+        
+        // Verificar que hay resultados para descargar
+        if (!window.currentSearchResults || Object.keys(window.currentSearchResults).length === 0) {
+            log('No hay resultados para descarga automática');
+            return;
+        }
+        
+        // Verificar que hay datos reales
+        var totalRecords = 0;
+        Object.keys(window.currentSearchResults).forEach(function(source) {
+            if (window.currentSearchResults[source] && Array.isArray(window.currentSearchResults[source])) {
+                totalRecords += window.currentSearchResults[source].length;
+            }
+        });
+        
+        if (totalRecords === 0) {
+            log('No hay registros para descarga automática');
+            return;
+        }
+        
+        // Realizar solicitud AJAX para descarga automática
+        $.ajax({
+            url: cp_frontend_ajax.url,
+            type: 'POST',
+            data: {
+                action: 'cp_auto_export_frontend_results',
+                nonce: cp_frontend_ajax.nonce,
+                search_id: searchId  // Usar el parámetro en lugar de la variable global
+            },
+            dataType: 'json',
+            timeout: 30000, // 30 segundos
+            success: function(response) {
+                log('Respuesta de descarga automática:', response);
+                
+                if (response.success) {
+                    // Mostrar mensaje de descarga automática iniciada
+                    showAutoDownloadMessage(response.data);
+                    
+                    // Iniciar descarga automática en el navegador
+                    setTimeout(function() {
+                        log('Iniciando descarga automática del archivo: ' + response.data.download_url);
+                        
+                        // Crear enlace temporal para descarga
+                        var tempLink = document.createElement('a');
+                        tempLink.href = response.data.download_url;
+                        tempLink.download = response.data.filename || 'consulta_procesos.xlsx';
+                        tempLink.style.display = 'none';
+                        document.body.appendChild(tempLink);
+                        tempLink.click();
+                        document.body.removeChild(tempLink);
+                        
+                    }, 1000); // Esperar 1 segundo antes de disparar la descarga
+                    
+                } else {
+                    log('Error en descarga automática:', response.data.message);
+                    // No mostrar error al usuario para no interrumpir la experiencia
+                    // Solo registrar en consola
+                }
+            },
+            error: function(xhr, status, error) {
+                log('Error AJAX en descarga automática:', { xhr: xhr, status: status, error: error });
+                // No mostrar error al usuario para descarga automática
+            }
+        });
+    }
+
+    /**
+     * NUEVO: Mostrar mensaje de descarga automática
+     */
+    function showAutoDownloadMessage(downloadData) {
+        // Remover mensajes anteriores de descarga automática
+        $('.cp-auto-download-message').remove();
+        
+        var message = `
+            <div class="cp-auto-download-message">
+                <div class="cp-auto-download-icon">
+                    <span class="dashicons dashicons-download"></span>
+                </div>
+                <div class="cp-auto-download-content">
+                    <strong>✓ Descarga automática iniciada</strong><br>
+                    <span class="cp-auto-download-filename">${escapeHtml(downloadData.filename || 'archivo.xlsx')}</span><br>
+                    <small class="cp-auto-download-details">
+                        ${downloadData.file_size || ''} • ${downloadData.records_count || 0} registros
+                    </small>
+                </div>
+                <div class="cp-auto-download-close">
+                    <span class="dashicons dashicons-no-alt"></span>
+                </div>
+            </div>
+        `;
+        
+        // Agregar al inicio del contenedor de resultados
+        $('.cp-results-container').prepend(message);
+        
+        // Manejar clic en cerrar
+        $('.cp-auto-download-close').on('click', function() {
+            $('.cp-auto-download-message').fadeOut(300, function() {
+                $(this).remove();
+            });
+        });
+        
+        // Auto-remover después de 10 segundos
+        setTimeout(function() {
+            $('.cp-auto-download-message').fadeOut(500, function() {
+                $(this).remove();
+            });
+        }, 10000);
+        
+        log('Mensaje de descarga automática mostrado');
+    }
     
     /**
      * NUEVO: Mostrar mensaje de éxito de exportación
@@ -1385,10 +1535,11 @@ jQuery(document).ready(function($) {
             <div class="cp-export-actions">
                 <button type="button" class="cp-btn cp-btn-secondary cp-export-excel">
                     <span class="dashicons dashicons-media-spreadsheet"></span>
-                    Exportar a Excel
+                    Descargar Excel (Manual)
                 </button>
                 <small class="cp-export-help">
-                    Se exportarán todos los resultados encontrados en las diferentes fuentes
+                    El archivo también se descarga automáticamente al completar la búsqueda.<br>
+                    Use este botón si necesita descargar nuevamente el archivo.
                 </small>
             </div>
         `;
@@ -1403,11 +1554,11 @@ jQuery(document).ready(function($) {
             // Vincular evento click con delegación de eventos
             $(document).off('click.cp-export').on('click.cp-export', '.cp-export-excel', function(e) {
                 e.preventDefault();
-                log('Click en botón de exportación detectado');
+                log('Click en botón de exportación manual detectado');
                 exportResultsToExcel();
             });
             
-            log('Evento click vinculado al botón de exportación');
+            log('Evento click vinculado al botón de exportación manual');
         } else {
             log('ERROR: El botón no se agregó correctamente al DOM');
         }

@@ -59,6 +59,10 @@ class CP_Frontend {
         // Hook para exportar resultados del frontend
         add_action('wp_ajax_cp_export_frontend_results', array($this, 'ajax_export_frontend_results'));
         add_action('wp_ajax_nopriv_cp_export_frontend_results', array($this, 'ajax_export_frontend_results'));
+
+        // Hook para descarga automática de resultados del frontend
+        add_action('wp_ajax_cp_auto_export_frontend_results', array($this, 'ajax_auto_export_frontend_results'));
+        add_action('wp_ajax_nopriv_cp_auto_export_frontend_results', array($this, 'ajax_auto_export_frontend_results'));
     }
     
     /**
@@ -138,6 +142,8 @@ class CP_Frontend {
                     'accept_terms' => __('Debe aceptar los términos de uso', 'consulta-procesos'),
                     'select_profile' => __('Debe seleccionar un perfil', 'consulta-procesos'),
                     'fill_dates' => __('Debe completar las fechas', 'consulta-procesos'),
+                    'auto_download_success' => __('Descarga automática iniciada', 'consulta-procesos'),
+                    'manual_download_available' => __('También puede descargar manualmente', 'consulta-procesos'),
                     'progress' => array(
                         'initializing' => __('Inicializando búsqueda...', 'consulta-procesos'),
                         'connecting' => __('Conectando a base de datos...', 'consulta-procesos'),
@@ -1913,69 +1919,80 @@ class CP_Frontend {
     /**
      * AJAX: Exportar resultados del frontend a Excel
      */
-    public function ajax_export_frontend_results() {
+    public function ajax_auto_export_frontend_results() {
         // Verificar nonce
         if (!wp_verify_nonce($_POST['nonce'], 'cp_frontend_nonce')) {
             wp_send_json_error(array('message' => 'Token de seguridad inválido'));
         }
         
-        // Obtener y sanitizar datos
-        $export_data = $_POST['export_data'] ?? '';
-        $format = sanitize_text_field($_POST['format'] ?? 'excel');
-        $profile_type = sanitize_text_field($_POST['profile_type'] ?? '');
-        $search_params = $_POST['search_params'] ?? array();
+        // Obtener search_id para recuperar resultados del transient
+        $search_id = sanitize_text_field($_POST['search_id'] ?? '');
         
-        if (empty($export_data)) {
-            wp_send_json_error(array('message' => 'No hay datos para exportar'));
+        if (empty($search_id)) {
+            wp_send_json_error(array('message' => 'ID de búsqueda requerido'));
         }
         
-        // Decodificar datos JSON
-        $results_data = json_decode(stripslashes($export_data), true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            wp_send_json_error(array('message' => 'Error decodificando datos de exportación'));
+        // Recuperar datos de la búsqueda completada
+        $search_data = get_transient($search_id);
+        
+        if (!$search_data || $search_data['status'] !== 'completed') {
+            wp_send_json_error(array('message' => 'Búsqueda no encontrada o no completada'));
+        }
+        
+        // Verificar que hay resultados
+        if (empty($search_data['results']) || $search_data['total_records'] === 0) {
+            wp_send_json_error(array('message' => 'No hay resultados para exportar'));
         }
         
         try {
             // Preparar datos para exportación
-            $export_ready_data = $this->prepare_frontend_data_for_export($results_data, $search_params);
+            $export_ready_data = $this->prepare_frontend_data_for_export(
+                $search_data['results'], 
+                $search_data['search_params']
+            );
             
             // Generar nombre de archivo descriptivo
-            $filename = $this->generate_export_filename($profile_type, $search_params, $format);
+            $filename = $this->generate_export_filename(
+                $search_data['search_params']['profile_type'], 
+                $search_data['search_params'], 
+                'excel'
+            );
             
             // Obtener instancia de la clase de exportación
             $exporter = CP_Export::get_instance();
             
             // Validar datos antes de exportar
-            $validation = $exporter->validate_export_data($export_ready_data, 50000); // Máximo 50k registros
+            $validation = $exporter->validate_export_data($export_ready_data, 50000);
             if (!$validation['valid']) {
                 wp_send_json_error(array('message' => $validation['error']));
             }
             
             // Exportar datos
-            $export_result = $exporter->export_data($export_ready_data, $format, $filename);
+            $export_result = $exporter->export_data($export_ready_data, 'excel', $filename);
             
             if ($export_result['success']) {
                 // Registrar exportación para estadísticas
-                $exporter->record_export($format);
+                $exporter->record_export('excel');
                 
-                // Log de exportación exitosa
-                error_log("CP Frontend: Exportación exitosa - {$filename}, " . count($export_ready_data) . " registros");
+                // Log de exportación automática exitosa
+                error_log("CP Frontend: Auto-exportación exitosa - {$filename}, " . count($export_ready_data) . " registros");
                 
                 wp_send_json_success(array(
-                    'message' => 'Exportación completada exitosamente',
+                    'message' => 'Descarga automática iniciada',
                     'download_url' => $export_result['download_url'],
                     'filename' => $export_result['filename'],
                     'file_size' => $export_result['file_size'],
                     'records_count' => $export_result['records_count'],
-                    'download_token' => $export_result['download_token']
+                    'download_token' => $export_result['download_token'],
+                    'auto_download' => true
                 ));
             } else {
-                error_log("CP Frontend: Error en exportación - " . $export_result['error']);
+                error_log("CP Frontend: Error en auto-exportación - " . $export_result['error']);
                 wp_send_json_error(array('message' => $export_result['error']));
             }
             
         } catch (Exception $e) {
-            error_log('CP Frontend Export Error: ' . $e->getMessage());
+            error_log('CP Frontend Auto Export Error: ' . $e->getMessage());
             wp_send_json_error(array('message' => 'Error interno del servidor: ' . $e->getMessage()));
         }
     }

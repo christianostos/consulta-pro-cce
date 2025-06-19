@@ -1361,3 +1361,253 @@
         align-self: flex-start;
     }
 }
+
+.cp-auto-download-message {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    border: 1px solid #c3e6cb;
+    border-left: 4px solid #28a745;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 15px 0 25px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+    animation: autoDownloadSlideIn 0.5s ease-out;
+    box-shadow: 0 2px 8px rgba(40, 167, 69, 0.1);
+    position: relative;
+}
+
+.cp-auto-download-icon {
+    color: #155724;
+    font-size: 24px;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.cp-auto-download-icon .dashicons {
+    animation: downloadBounce 2s ease-in-out infinite;
+}
+
+.cp-auto-download-content {
+    color: #155724;
+    font-size: 14px;
+    line-height: 1.5;
+    flex: 1;
+}
+
+.cp-auto-download-content strong {
+    color: #0f4419;
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.cp-auto-download-filename {
+    color: #0f4419;
+    font-weight: 500;
+    font-family: 'Courier New', monospace;
+    background: rgba(15, 68, 25, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    display: inline-block;
+    margin: 4px 0;
+}
+
+.cp-auto-download-details {
+    color: #6c757d;
+    font-size: 12px;
+    font-style: italic;
+}
+
+.cp-auto-download-close {
+    color: #6c757d;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.cp-auto-download-close:hover {
+    color: #495057;
+    background: rgba(108, 117, 125, 0.1);
+}
+
+.cp-auto-download-close .dashicons {
+    font-size: 16px;
+}
+
+/* Animaciones para descarga automática */
+@keyframes autoDownloadSlideIn {
+    0% {
+        opacity: 0;
+        transform: translateY(-20px) scale(0.95);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes downloadBounce {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-4px);
+    }
+}
+
+/* Modificación del botón manual para diferenciarlo */
+.cp-export-actions .cp-export-excel {
+    background: #6c757d !important;
+    border-color: #6c757d !important;
+}
+
+.cp-export-actions .cp-export-excel:hover {
+    background: #545b62 !important;
+    border-color: #545b62 !important;
+}
+
+.cp-export-help {
+    color: #6c757d !important;
+    font-size: 12px !important;
+    font-style: italic !important;
+    text-align: center !important;
+    margin-top: 10px !important;
+    line-height: 1.4 !important;
+}
+
+/* Estados de descarga automática */
+.cp-auto-download-message.downloading {
+    background: linear-gradient(135deg, #cce7ff 0%, #b8daff 100%);
+    border-color: #007bff;
+    border-left-color: #007bff;
+}
+
+.cp-auto-download-message.downloading .cp-auto-download-icon {
+    color: #004085;
+}
+
+.cp-auto-download-message.downloading .cp-auto-download-content {
+    color: #004085;
+}
+
+.cp-auto-download-message.downloading .cp-auto-download-content strong {
+    color: #002752;
+}
+
+.cp-auto-download-message.error {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    border-color: #dc3545;
+    border-left-color: #dc3545;
+}
+
+.cp-auto-download-message.error .cp-auto-download-icon {
+    color: #721c24;
+}
+
+.cp-auto-download-message.error .cp-auto-download-content {
+    color: #721c24;
+}
+
+.cp-auto-download-message.error .cp-auto-download-content strong {
+    color: #491217;
+}
+
+/* Responsive para descarga automática */
+@media (max-width: 768px) {
+    .cp-auto-download-message {
+        padding: 12px 16px;
+        gap: 12px;
+        margin: 10px 0 20px 0;
+    }
+    
+    .cp-auto-download-icon {
+        font-size: 20px;
+    }
+    
+    .cp-auto-download-content {
+        font-size: 13px;
+    }
+    
+    .cp-auto-download-content strong {
+        font-size: 14px;
+    }
+    
+    .cp-auto-download-filename {
+        font-size: 11px;
+        padding: 1px 4px;
+    }
+    
+    .cp-auto-download-details {
+        font-size: 11px;
+    }
+    
+    .cp-export-help {
+        font-size: 11px !important;
+        margin-top: 8px !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .cp-auto-download-message {
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+    }
+    
+    .cp-auto-download-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+    }
+    
+    .cp-auto-download-filename {
+        display: block;
+        word-break: break-all;
+    }
+}
+
+/* Mejoras visuales adicionales */
+.cp-auto-download-message::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #28a745, #20c997, #28a745);
+    border-radius: 8px 8px 0 0;
+    animation: downloadProgress 3s ease-in-out;
+}
+
+@keyframes downloadProgress {
+    0% {
+        background-size: 0% 100%;
+    }
+    100% {
+        background-size: 100% 100%;
+    }
+}
+
+/* Mejorar el contraste del botón manual */
+.cp-export-actions {
+    border-left: 4px solid #6c757d !important;
+}
+
+.cp-export-actions::before {
+    content: '📋';
+    position: absolute;
+    top: -8px;
+    left: 16px;
+    background: #f8f9fa;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    border: 1px solid #dee2e6;
+}
+
+.cp-export-actions {
+    position: relative;
+    margin-top: 25px !important;
+}
