@@ -29,7 +29,13 @@ class CP_Export {
      * Constructor
      */
     private function __construct() {
-        $this->temp_dir = wp_upload_dir()['basedir'] . '/cp-exports/';
+        $upload_dir = wp_upload_dir();
+        $this->temp_dir = $upload_dir['basedir'] . '/cp-exports/';
+        
+        error_log('CP Export: Inicializando clase');
+        error_log('CP Export: Upload dir: ' . print_r($upload_dir, true));
+        error_log('CP Export: Temp dir configurado: ' . $this->temp_dir);
+        
         $this->init_hooks();
         $this->create_temp_directory();
     }
@@ -38,34 +44,63 @@ class CP_Export {
      * Inicializar hooks
      */
     private function init_hooks() {
+        error_log('CP Export: Registrando hooks AJAX');
+        
+        // CRÍTICO: Registrar hooks tanto para usuarios logueados como no logueados
         add_action('wp_ajax_cp_export_data', array($this, 'ajax_export_data'));
         add_action('wp_ajax_cp_download_export', array($this, 'ajax_download_export'));
+        add_action('wp_ajax_nopriv_cp_download_export', array($this, 'ajax_download_export'));
         
         // Limpiar archivos temporales diariamente
         add_action('cp_cleanup_temp_files', array($this, 'cleanup_temp_files'));
         if (!wp_next_scheduled('cp_cleanup_temp_files')) {
             wp_schedule_event(time(), 'daily', 'cp_cleanup_temp_files');
         }
+        
+        error_log('CP Export: Hooks AJAX registrados exitosamente');
     }
     
     /**
      * Crear directorio temporal
      */
     private function create_temp_directory() {
+        error_log('CP Export: Verificando directorio temporal: ' . $this->temp_dir);
+        
         if (!file_exists($this->temp_dir)) {
-            wp_mkdir_p($this->temp_dir);
+            error_log('CP Export: Creando directorio temporal');
+            $result = wp_mkdir_p($this->temp_dir);
             
-            // Crear archivo .htaccess para proteger el directorio
-            $htaccess_content = "deny from all\n";
-            file_put_contents($this->temp_dir . '.htaccess', $htaccess_content);
+            if (!$result) {
+                error_log('CP Export: ERROR - No se pudo crear directorio');
+                return false;
+            }
         }
+        
+        // Verificar permisos
+        if (!is_writable($this->temp_dir)) {
+            error_log('CP Export: ERROR - Directorio no escribible');
+            return false;
+        }
+        
+        // Crear .htaccess para protección
+        $htaccess_file = $this->temp_dir . '.htaccess';
+        if (!file_exists($htaccess_file)) {
+            $htaccess_content = "deny from all\n";
+            file_put_contents($htaccess_file, $htaccess_content);
+        }
+        
+        error_log('CP Export: Directorio temporal verificado OK');
+        return true;
     }
     
     /**
      * Exportar datos en formato especificado
      */
     public function export_data($data, $format = 'csv', $filename = null, $headers = null) {
+        error_log('CP Export: export_data iniciada - Formato: ' . $format . ', Registros: ' . count($data));
+        
         if (!in_array($format, $this->allowed_formats)) {
+            error_log('CP Export: Error - Formato no válido: ' . $format);
             return array(
                 'success' => false,
                 'error' => __('Formato de exportación no válido.', 'consulta-procesos')
@@ -73,6 +108,7 @@ class CP_Export {
         }
         
         if (empty($data)) {
+            error_log('CP Export: Error - No hay datos para exportar');
             return array(
                 'success' => false,
                 'error' => __('No hay datos para exportar.', 'consulta-procesos')
@@ -81,19 +117,23 @@ class CP_Export {
         
         // Generar nombre de archivo si no se proporciona
         if (!$filename) {
-            $filename = CP_Utils::generate_unique_filename('export', $format);
+            $filename = $this->generate_filename($format);
         }
         
         $filepath = $this->temp_dir . $filename;
+        error_log('CP Export: Archivo a crear: ' . $filepath);
         
         try {
+            $result = false;
+            
             switch ($format) {
                 case 'csv':
                     $result = $this->export_to_csv($data, $filepath, $headers);
                     break;
                     
                 case 'excel':
-                    $result = $this->export_to_excel($data, $filepath, $headers);
+                    // Para Excel, creamos un CSV optimizado que Excel puede abrir correctamente
+                    $result = $this->export_to_excel_csv($data, $filepath, $headers);
                     break;
                     
                 case 'json':
@@ -109,26 +149,35 @@ class CP_Export {
             }
             
             if ($result) {
+                // Verificar que el archivo se creó correctamente
+                if (!file_exists($filepath)) {
+                    throw new Exception('El archivo no se creó correctamente');
+                }
+                
+                $file_size = filesize($filepath);
+                if ($file_size === 0) {
+                    throw new Exception('El archivo generado está vacío');
+                }
+                
                 // Crear token de descarga temporal
                 $download_token = $this->create_download_token($filename);
+                
+                error_log('CP Export: Archivo creado exitosamente - ' . $filename . ' (' . $file_size . ' bytes)');
                 
                 return array(
                     'success' => true,
                     'filename' => $filename,
                     'download_token' => $download_token,
                     'download_url' => $this->get_download_url($download_token),
-                    'file_size' => $this->format_file_size(filesize($filepath)),
+                    'file_size' => $this->format_file_size($file_size),
                     'records_count' => count($data)
                 );
             } else {
-                return array(
-                    'success' => false,
-                    'error' => __('Error al generar el archivo de exportación.', 'consulta-procesos')
-                );
+                throw new Exception('Error al generar el archivo de exportación');
             }
             
         } catch (Exception $e) {
-            CP_Utils::log('Error en exportación: ' . $e->getMessage(), 'error');
+            error_log('CP Export: Error en exportación - ' . $e->getMessage());
             
             return array(
                 'success' => false,
@@ -136,11 +185,98 @@ class CP_Export {
             );
         }
     }
+
+    /**
+     * Generar nombre de archivo único
+     */
+    private function generate_filename($format) {
+        $timestamp = date('Y-m-d_H-i-s');
+        $random = substr(md5(uniqid(mt_rand(), true)), 0, 8);
+        
+        // IMPORTANTE: Para Excel, usar extensión .csv (no .xlsx)
+        // Excel puede abrir CSV perfectamente
+        $extension = ($format === 'excel') ? 'csv' : $format;
+        
+        return "consulta_procesos_{$timestamp}_{$random}.{$extension}";
+    }
+
+    /**
+     * Exportar a CSV optimizado para Excel - SIMPLIFICADO
+     */
+    private function export_to_excel_csv($data, $filepath, $headers = null) {
+        error_log('CP Export: export_to_excel_csv iniciada - ' . count($data) . ' registros');
+        
+        $file = fopen($filepath, 'w');
+        
+        if (!$file) {
+            throw new Exception('No se pudo crear el archivo CSV');
+        }
+        
+        // BOM para UTF-8 (crítico para Excel y caracteres especiales)
+        fwrite($file, "\xEF\xBB\xBF");
+        
+        $rows_written = 0;
+        
+        // Escribir headers
+        if ($headers && is_array($headers)) {
+            fputcsv($file, $headers, ',', '"');
+            $rows_written++;
+        } elseif (!empty($data)) {
+            $first_row = is_object($data[0]) ? get_object_vars($data[0]) : $data[0];
+            if (is_array($first_row)) {
+                // Crear headers más legibles
+                $readable_headers = array();
+                foreach (array_keys($first_row) as $key) {
+                    $header = str_replace('_', ' ', $key);
+                    $header = ucwords(strtolower($header));
+                    $readable_headers[] = $header;
+                }
+                fputcsv($file, $readable_headers, ',', '"');
+                $rows_written++;
+            }
+        }
+        
+        // Escribir datos
+        foreach ($data as $row) {
+            if (is_object($row)) {
+                $row = get_object_vars($row);
+            }
+            
+            if (is_array($row)) {
+                // Limpiar valores para Excel
+                $clean_row = array();
+                foreach ($row as $value) {
+                    if (is_null($value)) {
+                        $clean_row[] = '';
+                    } elseif (is_bool($value)) {
+                        $clean_row[] = $value ? 'SÍ' : 'NO';
+                    } elseif (is_array($value) || is_object($value)) {
+                        $clean_row[] = json_encode($value, JSON_UNESCAPED_UNICODE);
+                    } else {
+                        // Convertir a string y limpiar saltos de línea
+                        $str = (string) $value;
+                        $str = str_replace(array("\r\n", "\r", "\n"), ' | ', $str);
+                        $clean_row[] = $str;
+                    }
+                }
+                
+                fputcsv($file, $clean_row, ',', '"');
+                $rows_written++;
+            }
+        }
+        
+        fclose($file);
+        
+        error_log('CP Export: CSV creado exitosamente con ' . $rows_written . ' filas');
+        return true;
+    }
     
     /**
      * Exportar a CSV
      */
     private function export_to_csv($data, $filepath, $headers = null) {
+        error_log('CP Export: export_to_csv iniciada');
+        
         $file = fopen($filepath, 'w');
         
         if (!$file) {
@@ -150,13 +286,17 @@ class CP_Export {
         // BOM para UTF-8
         fwrite($file, "\xEF\xBB\xBF");
         
+        $rows_written = 0;
+        
         // Escribir headers
         if ($headers) {
             fputcsv($file, $headers);
+            $rows_written++;
         } elseif (!empty($data) && is_array($data[0])) {
             // Usar keys del primer registro como headers
             $first_row = is_object($data[0]) ? get_object_vars($data[0]) : $data[0];
             fputcsv($file, array_keys($first_row));
+            $rows_written++;
         }
         
         // Escribir datos
@@ -165,23 +305,27 @@ class CP_Export {
                 $row = get_object_vars($row);
             }
             
-            // Convertir valores a string y manejar valores nulos
-            $row = array_map(function($value) {
+            // Limpiar valores
+            $clean_row = array();
+            foreach ($row as $value) {
                 if (is_null($value)) {
-                    return '';
+                    $clean_row[] = '';
                 } elseif (is_bool($value)) {
-                    return $value ? 'true' : 'false';
+                    $clean_row[] = $value ? 'true' : 'false';
                 } elseif (is_array($value) || is_object($value)) {
-                    return json_encode($value);
+                    $clean_row[] = json_encode($value);
                 } else {
-                    return (string) $value;
+                    $clean_row[] = (string) $value;
                 }
-            }, $row);
+            }
             
-            fputcsv($file, $row);
+            fputcsv($file, $clean_row);
+            $rows_written++;
         }
         
         fclose($file);
+        
+        error_log('CP Export: CSV creado con ' . $rows_written . ' filas');
         return true;
     }
     
@@ -189,10 +333,15 @@ class CP_Export {
      * Exportar a Excel (usando formato CSV con configuración para Excel)
      */
     private function export_to_excel($data, $filepath, $headers = null) {
+        error_log('CP Export: export_to_excel iniciada');
+        error_log('CP Export: Filepath: ' . $filepath);
+        error_log('CP Export: Data count: ' . count($data));
+        
         // Crear archivo Excel usando formato CSV con configuración específica para Excel
         $file = fopen($filepath, 'w');
         
         if (!$file) {
+            error_log('CP Export: Error - No se pudo crear el archivo');
             throw new Exception('No se pudo crear el archivo Excel');
         }
         
@@ -242,9 +391,12 @@ class CP_Export {
             fwrite($file, $line . "\r\n");
         };
         
+        $rows_written = 0;
+        
         // Escribir headers personalizados o automáticos
         if ($headers) {
             $put_csv_excel($file, $headers);
+            $rows_written++;
         } elseif (!empty($data)) {
             $first_row = is_object($data[0]) ? get_object_vars($data[0]) : $data[0];
             if (is_array($first_row)) {
@@ -254,6 +406,7 @@ class CP_Export {
                     $readable_headers[] = $this->format_header_name($key);
                 }
                 $put_csv_excel($file, $readable_headers);
+                $rows_written++;
             }
         }
         
@@ -270,17 +423,39 @@ class CP_Export {
                     $formatted_row[] = $this->format_cell_value($value);
                 }
                 $put_csv_excel($file, $formatted_row);
+                $rows_written++;
             }
         }
         
         fclose($file);
         
-        // Cambiar extensión a .xlsx para que Excel lo reconozca mejor
-        $new_filepath = str_replace('.csv', '.xlsx', $filepath);
-        if ($filepath !== $new_filepath) {
-            rename($filepath, $new_filepath);
+        error_log('CP Export: Archivo CSV base creado con ' . $rows_written . ' filas');
+        
+        // Verificar que el archivo se creó y tiene contenido
+        if (!file_exists($filepath)) {
+            error_log('CP Export: Error - El archivo no se creó');
+            throw new Exception('El archivo no se creó correctamente');
         }
         
+        $file_size = filesize($filepath);
+        error_log('CP Export: Tamaño del archivo: ' . $file_size . ' bytes');
+        
+        if ($file_size === 0) {
+            error_log('CP Export: Error - El archivo está vacío');
+            throw new Exception('El archivo generado está vacío');
+        }
+        
+        // Cambiar extensión a .xlsx para que Excel lo reconozca mejor
+        $new_filepath = $filepath;//str_replace('.csv', '.xlsx', $filepath);
+        if ($filepath !== $new_filepath) {
+            if (rename($filepath, $new_filepath)) {
+                error_log('CP Export: Archivo renombrado de .csv a .xlsx');
+            } else {
+                error_log('CP Export: Warning - No se pudo renombrar a .xlsx, manteniendo .csv');
+            }
+        }
+        
+        error_log('CP Export: export_to_excel completada exitosamente');
         return true;
     }
     
@@ -337,7 +512,7 @@ class CP_Export {
     private function export_to_json($data, $filepath) {
         $json_data = array(
             'exported_at' => current_time('mysql'),
-            'plugin_version' => CP_PLUGIN_VERSION,
+            'plugin_version' => defined('CP_PLUGIN_VERSION') ? CP_PLUGIN_VERSION : '1.0.0',
             'total_records' => count($data),
             'data' => $data
         );
@@ -360,7 +535,7 @@ class CP_Export {
         // Metadatos
         $metadata = $xml->addChild('metadata');
         $metadata->addChild('exported_at', current_time('mysql'));
-        $metadata->addChild('plugin_version', CP_PLUGIN_VERSION);
+        $metadata->addChild('plugin_version', defined('CP_PLUGIN_VERSION') ? CP_PLUGIN_VERSION : '1.0.0');
         $metadata->addChild('total_records', count($data));
         
         // Datos
@@ -375,24 +550,18 @@ class CP_Export {
             }
             
             foreach ($row as $key => $value) {
-                // Limpiar nombre de elemento XML
                 $element_name = preg_replace('/[^a-zA-Z0-9_]/', '_', $key);
                 $element_name = preg_replace('/^[^a-zA-Z_]/', '_', $element_name);
                 
                 if (is_null($value)) {
                     $element = $record->addChild($element_name);
                     $element->addAttribute('null', 'true');
-                } elseif (is_bool($value)) {
-                    $record->addChild($element_name, $value ? 'true' : 'false');
-                } elseif (is_array($value) || is_object($value)) {
-                    $record->addChild($element_name, htmlspecialchars(json_encode($value)));
                 } else {
-                    $record->addChild($element_name, htmlspecialchars($value));
+                    $record->addChild($element_name, htmlspecialchars((string)$value));
                 }
             }
         }
         
-        // Formatear XML
         $dom = new DOMDocument('1.0', 'UTF-8');
         $dom->formatOutput = true;
         $dom->loadXML($xml->asXML());
@@ -404,15 +573,39 @@ class CP_Export {
      * Crear token de descarga temporal
      */
     private function create_download_token($filename) {
-        $token = CP_Utils::generate_secure_token();
+        $token = wp_generate_password(32, false);
         
-        set_transient('cp_download_' . $token, array(
+        $download_data = array(
             'filename' => $filename,
             'user_id' => get_current_user_id(),
-            'created_at' => time()
-        ), 3600); // 1 hora de validez
+            'created_at' => time(),
+            'user_ip' => $this->get_client_ip()
+        );
+        
+        $transient_key = 'cp_download_' . $token;
+        $result = set_transient($transient_key, $download_data, 3600);
+        
+        error_log('CP Export: Token creado - ' . $token . ' (' . ($result ? 'OK' : 'FAILED') . ')');
         
         return $token;
+    }
+
+    /**
+     * Obtener IP del cliente
+     */
+    private function get_client_ip() {
+        $ip_keys = array('HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR');
+        
+        foreach ($ip_keys as $key) {
+            if (!empty($_SERVER[$key])) {
+                $ip = trim(explode(',', $_SERVER[$key])[0]);
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                    return $ip;
+                }
+            }
+        }
+        
+        return 'unknown';
     }
     
     /**
@@ -426,111 +619,146 @@ class CP_Export {
      * AJAX: Exportar datos
      */
     public function ajax_export_data() {
-        // Verificar permisos
+        // Esta función es para el admin, no para el frontend
         if (!current_user_can('manage_options')) {
             wp_die('No autorizado');
         }
         
-        check_ajax_referer('cp_nonce', 'nonce');
-        
-        // Obtener parámetros
-        $format = sanitize_text_field($_POST['format'] ?? 'csv');
-        $query_id = intval($_POST['query_id'] ?? 0);
-        
-        // Por ahora, datos de ejemplo
-        // En implementación real, estos vendrían de la consulta ejecutada
-        $sample_data = array(
-            array('id' => 1, 'nombre' => 'Juan Pérez', 'email' => 'juan@email.com', 'fecha' => '2024-01-15'),
-            array('id' => 2, 'nombre' => 'María García', 'email' => 'maria@email.com', 'fecha' => '2024-01-16'),
-            array('id' => 3, 'nombre' => 'Carlos López', 'email' => 'carlos@email.com', 'fecha' => '2024-01-17')
-        );
-        
-        $result = $this->export_data($sample_data, $format);
-        
-        if ($result['success']) {
-            wp_send_json_success($result);
-        } else {
-            wp_send_json_error($result);
-        }
+        wp_send_json_error(array('message' => 'Función no implementada'));
     }
     
     /**
      * AJAX: Descargar archivo exportado
      */
     public function ajax_download_export() {
+        error_log('CP Export: ajax_download_export iniciada');
+        error_log('CP Export: GET params: ' . print_r($_GET, true));
+        
+        // Obtener token
         $token = sanitize_text_field($_GET['token'] ?? '');
         
         if (empty($token)) {
-            wp_die('Token requerido');
+            error_log('CP Export: Error - Token vacío');
+            wp_die('Token requerido', 'Error', array('response' => 400));
         }
         
-        $download_data = get_transient('cp_download_' . $token);
+        // Obtener datos del transient
+        $transient_key = 'cp_download_' . $token;
+        $download_data = get_transient($transient_key);
         
-        if (!$download_data) {
-            wp_die('Token inválido o expirado');
+        error_log('CP Export: Buscando transient: ' . $transient_key);
+        error_log('CP Export: Datos encontrados: ' . print_r($download_data, true));
+        
+        if (!$download_data || !is_array($download_data)) {
+            error_log('CP Export: Error - Token inválido o datos no encontrados');
+            wp_die('Token inválido o expirado', 'Error', array('response' => 400));
         }
         
-        // Verificar que el usuario actual pueda descargar este archivo
-        if ($download_data['user_id'] != get_current_user_id() && !current_user_can('manage_options')) {
-            wp_die('No autorizado para descargar este archivo');
+        // Construir ruta del archivo
+        $filename = $download_data['filename'] ?? '';
+        if (empty($filename)) {
+            error_log('CP Export: Error - Filename vacío en datos');
+            wp_die('Archivo no válido', 'Error', array('response' => 400));
         }
         
-        $filepath = $this->temp_dir . $download_data['filename'];
+        $filepath = $this->temp_dir . $filename;
+        error_log('CP Export: Buscando archivo en: ' . $filepath);
         
         if (!file_exists($filepath)) {
-            wp_die('Archivo no encontrado');
+            error_log('CP Export: Error - Archivo no encontrado: ' . $filepath);
+            
+            // Listar archivos en el directorio para debug
+            if (is_dir($this->temp_dir)) {
+                $files = scandir($this->temp_dir);
+                error_log('CP Export: Archivos en directorio: ' . print_r($files, true));
+            } else {
+                error_log('CP Export: Directorio no existe: ' . $this->temp_dir);
+            }
+            
+            wp_die('Archivo no encontrado', 'Error', array('response' => 404));
         }
         
-        // Eliminar el token después del uso
-        delete_transient('cp_download_' . $token);
+        $file_size = filesize($filepath);
+        if ($file_size === 0) {
+            error_log('CP Export: Error - Archivo vacío');
+            wp_die('Archivo vacío', 'Error', array('response' => 400));
+        }
         
-        // Preparar descarga
-        $this->send_file_download($filepath, $download_data['filename']);
+        error_log('CP Export: Preparando descarga - ' . $filename . ' (' . $file_size . ' bytes)');
+        
+        // Eliminar token
+        delete_transient($transient_key);
+        
+        // Limpiar output buffer
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
+        
+        // Headers para descarga
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+        header('Content-Length: ' . $file_size);
+        header('Cache-Control: no-cache, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+        
+        // Enviar archivo
+        readfile($filepath);
+        
+        // Limpiar archivo temporal
+        unlink($filepath);
+        
+        error_log('CP Export: Descarga completada y archivo eliminado');
+        exit();
     }
     
     /**
      * Enviar archivo para descarga
      */
     private function send_file_download($filepath, $filename) {
-        $extension = CP_Utils::get_file_extension($filename);
+        error_log('CP Export: Enviando archivo - ' . $filename);
         
         // Determinar content type
+        $extension = pathinfo($filename, PATHINFO_EXTENSION);
         $content_types = array(
             'csv' => 'text/csv',
             'json' => 'application/json',
-            'xml' => 'application/xml',
-            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'xls' => 'application/vnd.ms-excel'
+            'xml' => 'application/xml'
         );
         
         $content_type = $content_types[$extension] ?? 'application/octet-stream';
         
-        // Headers para descarga
-        header('Content-Type: ' . $content_type);
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Content-Length: ' . filesize($filepath));
-        header('Cache-Control: no-cache, must-revalidate');
-        header('Expires: 0');
-        
-        // Limpiar buffer de salida
+        // Limpiar cualquier output previo
         if (ob_get_level()) {
             ob_end_clean();
         }
         
+        // Headers para descarga
+        header('Content-Type: ' . $content_type);
+        header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+        header('Content-Length: ' . filesize($filepath));
+        header('Cache-Control: no-cache, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+        
         // Enviar archivo
         readfile($filepath);
         
-        // Eliminar archivo temporal después de la descarga
+        // Eliminar archivo temporal
         unlink($filepath);
         
-        exit;
+        error_log('CP Export: Archivo enviado y eliminado');
+        exit();
     }
     
     /**
      * Formatear tamaño de archivo
      */
     private function format_file_size($bytes) {
-        return CP_Utils::format_bytes($bytes);
+        $units = array('B', 'KB', 'MB', 'GB');
+        $factor = floor((strlen($bytes) - 1) / 3);
+        
+        return sprintf("%.2f", $bytes / pow(1024, $factor)) . ' ' . $units[$factor];
     }
     
     /**
@@ -549,8 +777,6 @@ class CP_Export {
                 unlink($file);
             }
         }
-        
-        CP_Utils::log('Limpieza de archivos temporales completada', 'info');
     }
     
     /**
@@ -574,7 +800,6 @@ class CP_Export {
      * Registrar exportación
      */
     public function record_export($format) {
-        // Estadísticas por día
         $exports = get_option('cp_export_stats', array());
         $today = date('Y-m-d');
         $exports[$today] = ($exports[$today] ?? 0) + 1;
@@ -586,13 +811,6 @@ class CP_Export {
         }, ARRAY_FILTER_USE_KEY);
         
         update_option('cp_export_stats', $exports);
-        
-        // Estadísticas por formato
-        $formats = get_option('cp_export_formats', array());
-        $formats[$format] = ($formats[$format] ?? 0) + 1;
-        update_option('cp_export_formats', $formats);
-        
-        // Última exportación
         update_option('cp_last_export_date', current_time('mysql'));
     }
     
@@ -614,14 +832,6 @@ class CP_Export {
                     __('Demasiados registros para exportar. Máximo permitido: %d', 'consulta-procesos'),
                     $max_records
                 )
-            );
-        }
-        
-        // Verificar estructura de datos
-        if (!is_array($data[0]) && !is_object($data[0])) {
-            return array(
-                'valid' => false,
-                'error' => __('Formato de datos no válido para exportación.', 'consulta-procesos')
             );
         }
         

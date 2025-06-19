@@ -102,31 +102,57 @@ class ConsultaProcesos {
         foreach ($optional_files as $file) {
             if (file_exists($file)) {
                 require_once $file;
+                error_log('CP Plugin: Cargado ' . basename($file));
+            } else {
+                error_log('CP Plugin: No encontrado ' . basename($file));
             }
         }
         
         // Inicializar clases principales
         if (class_exists('CP_Database')) {
             $this->db = CP_Database::get_instance();
+            error_log('CP Plugin: CP_Database instanciado');
+        } else {
+            error_log('CP Plugin: ERROR - Clase CP_Database no encontrada');
         }
         
         if (class_exists('CP_Admin')) {
             $this->admin = CP_Admin::get_instance();
+            error_log('CP Plugin: CP_Admin instanciado');
+        } else {
+            error_log('CP Plugin: ERROR - Clase CP_Admin no encontrada');
+        }
+        
+        // CRÍTICO: Inicializar CP_Export para registrar hooks AJAX
+        if (class_exists('CP_Export')) {
+            CP_Export::get_instance();
+            error_log('CP Plugin: CP_Export instanciado y hooks registrados');
+        } else {
+            error_log('CP Plugin: ERROR - Clase CP_Export no encontrada');
         }
         
         // Inicializar frontend
         if (class_exists('CP_Frontend')) {
             $this->frontend = CP_Frontend::get_instance();
+            error_log('CP Plugin: CP_Frontend instanciado');
+        } else {
+            error_log('CP Plugin: ERROR - Clase CP_Frontend no encontrada');
         }
         
         // NUEVO: Inicializar logs
         if (class_exists('CP_Logs')) {
             $this->logs = CP_Logs::get_instance();
+            error_log('CP Plugin: CP_Logs instanciado');
+        } else {
+            error_log('CP Plugin: Clase CP_Logs no encontrada (opcional)');
         }
         
         // Inicializar ejecutor de consultas
         if (class_exists('CP_Query_Executor')) {
             $this->query_executor = CP_Query_Executor::get_instance();
+            error_log('CP Plugin: CP_Query_Executor instanciado');
+        } else {
+            error_log('CP Plugin: Clase CP_Query_Executor no encontrada (opcional)');
         }
     }
     
