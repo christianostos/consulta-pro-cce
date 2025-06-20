@@ -1619,7 +1619,7 @@
 .cp-export-pdf-actions {
     background: #f8f9fa;
     border: 1px solid #e3e4e6;
-    border-left: 4px solid #dc3545 !important;
+    border-left: 4px solid #233A79 !important;
     border-radius: 8px;
     padding: 20px;
     margin: 20px 0;
@@ -1640,8 +1640,8 @@
 }
 
 .cp-export-pdf-no-results {
-    background: #dc3545 !important;
-    border-color: #dc3545 !important;
+    background: #233A79 !important;
+    border-color: #233A79 !important;
     color: white !important;
     padding: 12px 24px !important;
     font-size: 14px !important;
@@ -1656,8 +1656,8 @@
 }
 
 .cp-export-pdf-no-results:hover {
-    background: #c82333 !important;
-    border-color: #c82333 !important;
+    background: #233A79 !important;
+    border-color: #233A79 !important;
     transform: translateY(-1px) !important;
     box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3) !important;
 }
